@@ -1,8 +1,21 @@
 import SwiftUI
 import FigBridgeCore
+import AppKit
+
+final class FigBridgeAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+
+        DispatchQueue.main.async {
+            NSApp.windows.first?.makeKeyAndOrderFront(nil)
+        }
+    }
+}
 
 @main
 struct FigBridgeApp: App {
+    @NSApplicationDelegateAdaptor(FigBridgeAppDelegate.self) private var appDelegate
     @StateObject private var appContainer = AppContainer()
 
     var body: some Scene {
