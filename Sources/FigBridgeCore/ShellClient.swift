@@ -22,16 +22,8 @@ public struct ShellClient: Sendable {
     }
 
     public func resolveExecutable(named name: String) -> URL? {
-        for directory in pathLookupDirectories {
+        for directory in searchDirectories() {
             let candidate = directory.appendingPathComponent(name)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        let pathComponents = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        for path in pathComponents {
-            let candidate = URL(fileURLWithPath: path).appendingPathComponent(name)
             if FileManager.default.isExecutableFile(atPath: candidate.path) {
                 return candidate
             }
@@ -62,5 +54,58 @@ public struct ShellClient: Sendable {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    private func searchDirectories() -> [URL] {
+        var orderedDirectories: [URL] = []
+        var visitedPaths = Set<String>()
+
+        func appendDirectory(_ url: URL) {
+            let normalizedPath = url.standardizedFileURL.path
+            guard !normalizedPath.isEmpty, !visitedPaths.contains(normalizedPath) else {
+                return
+            }
+            visitedPaths.insert(normalizedPath)
+            orderedDirectories.append(url)
+        }
+
+        for directory in pathLookupDirectories {
+            appendDirectory(directory)
+        }
+
+        let pathComponents = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        for path in pathComponents where !path.isEmpty {
+            appendDirectory(URL(fileURLWithPath: path, isDirectory: true))
+        }
+
+        if let home = environment["HOME"], !home.isEmpty {
+            let homeURL = URL(fileURLWithPath: home, isDirectory: true)
+            let homeFallbacks = [
+                ".superconductor/bin",
+                ".local/bin",
+                ".cargo/bin",
+                ".bun/bin",
+                ".opencode/bin",
+                ".codex/bin",
+                ".npm-global/bin"
+            ]
+            for relativePath in homeFallbacks {
+                appendDirectory(homeURL.appendingPathComponent(relativePath, isDirectory: true))
+            }
+        }
+
+        let systemFallbacks = [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin"
+        ]
+        for path in systemFallbacks {
+            appendDirectory(URL(fileURLWithPath: path, isDirectory: true))
+        }
+
+        return orderedDirectories
     }
 }

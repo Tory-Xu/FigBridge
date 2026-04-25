@@ -24,16 +24,37 @@ struct AgentServiceTests {
         #expect(agents.first(where: { $0.provider == .codex })?.version == "codex 2.0.0")
     }
 
-    @Test func returnsEmptyWhenNoAgentExists() async throws {
+    @Test func ignoresMissingCustomLookupDirectories() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }
 
         let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
+        let resolved = shell.resolveExecutable(named: "definitely-missing-agent")
+
+        #expect(resolved == nil)
+    }
+
+    @Test func detectsAgentsFromFallbackHomeBinDirectories() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let homeDirectory = sandbox.root.appendingPathComponent("home", isDirectory: true)
+        let fallbackDirectory = homeDirectory.appendingPathComponent(".superconductor/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallbackDirectory, withIntermediateDirectories: true)
+
+        let claudePath = fallbackDirectory.appendingPathComponent("claude")
+        let codexPath = fallbackDirectory.appendingPathComponent("codex")
+        try makeExecutable(at: claudePath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"claude 9.9.9\"\nfi\n")
+        try makeExecutable(at: codexPath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex 8.8.8\"\nfi\n")
+
+        let shell = ShellClient(pathLookupDirectories: [], environment: ["HOME": homeDirectory.path, "PATH": "/usr/bin:/bin"])
         let service = AgentService(shellClient: shell)
 
         let agents = try await service.detectAvailableAgents()
 
-        #expect(agents.isEmpty)
+        #expect(agents.count == 2)
+        #expect(agents.first(where: { $0.provider == .claude })?.path == claudePath.path)
+        #expect(agents.first(where: { $0.provider == .codex })?.path == codexPath.path)
     }
 
     @Test func runsClaudeAndCodexWithExpectedArguments() async throws {
