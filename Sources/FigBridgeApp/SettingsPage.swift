@@ -49,6 +49,7 @@ struct SettingsPage: View {
                     .foregroundStyle(viewModel.isError ? .red : .secondary)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .formStyle(.grouped)
         .task {
             await viewModel.bootstrap()

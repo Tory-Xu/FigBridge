@@ -63,6 +63,7 @@ struct GeneratePage: View {
                 }
                 Spacer()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 360)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -88,6 +89,7 @@ struct GeneratePage: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 320)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -151,8 +153,10 @@ struct GeneratePage: View {
                     ContentUnavailableView("未选择条目", systemImage: "sidebar.right")
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 360)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .bottomTrailing) {
             if !viewModel.exportMessage.isEmpty {
                 Text(viewModel.exportMessage)

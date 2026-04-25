@@ -17,6 +17,18 @@ public enum AgentServiceError: LocalizedError {
     }
 }
 
+public struct AgentRunResult: Sendable {
+    public let output: String
+    public let executablePath: String
+    public let arguments: [String]
+
+    public init(output: String, executablePath: String, arguments: [String]) {
+        self.output = output
+        self.executablePath = executablePath
+        self.arguments = arguments
+    }
+}
+
 public struct AgentService: Sendable {
     public let shellClient: ShellClient
 
@@ -47,6 +59,10 @@ public struct AgentService: Sendable {
     }
 
     public func run(provider: AgentProvider, prompt: String) async throws -> String {
+        try await runDetailed(provider: provider, prompt: prompt).output
+    }
+
+    public func runDetailed(provider: AgentProvider, prompt: String) async throws -> AgentRunResult {
         let arguments: [String]
         switch provider {
         case .claude:
@@ -68,6 +84,6 @@ public struct AgentService: Sendable {
         guard !output.isEmpty else {
             throw AgentServiceError.emptyOutput
         }
-        return output
+        return AgentRunResult(output: output, executablePath: executable.path, arguments: arguments)
     }
 }

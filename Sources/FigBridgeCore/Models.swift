@@ -9,7 +9,12 @@ public enum AgentProvider: String, Codable, CaseIterable, Sendable {
     }
 
     public var displayName: String {
-        rawValue.capitalized
+        switch self {
+        case .claude:
+            "Claude"
+        case .codex:
+            "Codex"
+        }
     }
 }
 

@@ -20,6 +20,7 @@ struct RootView: View {
                     Label("设置", systemImage: "gearshape")
                 }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(16)
     }
 }

@@ -1,12 +1,12 @@
 import Foundation
 
 public protocol AgentRunning: Sendable {
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> String
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult
 }
 
 extension AgentService: AgentRunning {
-    public func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> String {
-        try await run(provider: provider, prompt: prompt)
+    public func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+        try await runDetailed(provider: provider, prompt: prompt)
     }
 }
 
@@ -113,18 +113,19 @@ public struct GenerationCoordinator: Sendable {
         try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
 
         do {
-            let output = try await agentRunner.run(provider: provider, prompt: prompt, item: item)
+            let result = try await agentRunner.run(provider: provider, prompt: prompt, item: item)
             let yamlURL = yamlDirectory.appendingPathComponent("figma-node-\(item.nodeId.replacingOccurrences(of: ":", with: "-")).yaml")
             let rawOutputURL = yamlDirectory.appendingPathComponent("agent-output.txt")
-            try output.write(to: rawOutputURL, atomically: true, encoding: .utf8)
-            try output.write(to: yamlURL, atomically: true, encoding: .utf8)
+            try result.output.write(to: rawOutputURL, atomically: true, encoding: .utf8)
+            try result.output.write(to: yamlURL, atomically: true, encoding: .utf8)
             resolvedItem.generatedYAMLPath = yamlURL.path
             resolvedItem.agentOutputPath = rawOutputURL.path
             resolvedItem.generationStatus = .success
-            resolvedItem.logSummary = "输出已保存"
+            resolvedItem.logSummary = "\(provider.displayName) 已执行：\(result.executablePath)"
         } catch {
             resolvedItem.generationStatus = .failed
             resolvedItem.errorMessage = error.localizedDescription
+            resolvedItem.logSummary = "执行失败"
         }
 
         return resolvedItem

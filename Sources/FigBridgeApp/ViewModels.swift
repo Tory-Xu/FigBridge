@@ -103,7 +103,7 @@ final class GenerateViewModel: ObservableObject {
     private let figmaService: FigmaService
     private let parser = FigmaLinkParser()
     private var bootstrapped = false
-    private var generationTask: Task<Void, Never>?
+    private var generationTask: Task<PersistedBatch, Error>?
 
     init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService) {
         self.settingsViewModel = settingsViewModel
@@ -171,37 +171,49 @@ final class GenerateViewModel: ObservableObject {
         completedCount = 0
         progressText = "准备生成 \(items.count) 项"
         validationMessage = ""
+        for index in items.indices {
+            items[index].generationStatus = .queued
+            items[index].logSummary = "等待执行"
+            items[index].errorMessage = nil
+        }
 
-        generationTask = Task { @MainActor in
-            do {
-                let persisted = try await generationCoordinator.generate(
-                    agent: provider,
-                    promptTemplate: promptTemplate,
-                    sourceInputText: inputText,
-                    outputDirectory: URL(fileURLWithPath: outputDirectoryPath, isDirectory: true),
-                    mode: mode,
-                    parallelism: parallelism,
-                    items: items,
-                    progress: { [weak self] completed, total, item in
-                        await MainActor.run {
-                            guard let self else {
-                                return
-                            }
-                            self.completedCount = completed
-                            self.progressText = "已完成 \(completed)/\(total)：\(item.title ?? item.nodeName ?? item.nodeId)"
+        let task = Task<PersistedBatch, Error> {
+            try await generationCoordinator.generate(
+                agent: provider,
+                promptTemplate: promptTemplate,
+                sourceInputText: inputText,
+                outputDirectory: URL(fileURLWithPath: outputDirectoryPath, isDirectory: true),
+                mode: mode,
+                parallelism: parallelism,
+                items: items,
+                progress: { [weak self] completed, total, item in
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.completedCount = completed
+                        self.progressText = "已完成 \(completed)/\(total)：\(item.title ?? item.nodeName ?? item.nodeId)"
+                        if let index = self.items.firstIndex(where: { $0.id == item.id }) {
+                            self.items[index] = item
                         }
                     }
-                )
-                items = persisted.summary.items
-                validationMessage = "生成完成"
-            } catch is CancellationError {
-                validationMessage = "生成已取消"
-            } catch {
-                validationMessage = error.localizedDescription
-            }
-            isGenerating = false
-            generationTask = nil
+                }
+            )
         }
+        generationTask = task
+
+        do {
+            let persisted = try await task.value
+            items = persisted.summary.items
+            validationMessage = "生成完成"
+        } catch is CancellationError {
+            validationMessage = "生成已取消"
+        } catch {
+            validationMessage = error.localizedDescription
+        }
+
+        isGenerating = false
+        generationTask = nil
     }
 
     func cancelGeneration() {

@@ -71,12 +71,12 @@ private actor MockAgentRunner: AgentRunning {
         self.outputs = outputs
     }
 
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> String {
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
         let key = "\(item.fileKey)|\(item.nodeId)"
         guard let result = outputs[key] else {
             throw MockFailure()
         }
-        return try result.get()
+        return AgentRunResult(output: try result.get(), executablePath: "/mock/\(provider.rawValue)", arguments: [])
     }
 }
 

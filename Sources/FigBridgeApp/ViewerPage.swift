@@ -42,6 +42,7 @@ struct ViewerPage: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 280)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -89,6 +90,7 @@ struct ViewerPage: View {
                     ContentUnavailableView("暂无批次", systemImage: "archivebox")
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 400)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -142,7 +144,9 @@ struct ViewerPage: View {
                     ContentUnavailableView("未选择条目", systemImage: "doc.text")
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             viewModel.reload()
         }
