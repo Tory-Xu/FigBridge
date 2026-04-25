@@ -1,0 +1,258 @@
+import Foundation
+
+public enum AgentProvider: String, Codable, CaseIterable, Sendable {
+    case claude
+    case codex
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        rawValue.capitalized
+    }
+}
+
+public enum GenerationMode: String, Codable, CaseIterable, Sendable {
+    case sequential
+    case parallel
+
+    public var displayName: String {
+        switch self {
+        case .sequential:
+            "逐个"
+        case .parallel:
+            "并发"
+        }
+    }
+}
+
+public enum ExportFormat: String, Codable, CaseIterable, Sendable {
+    case png
+    case svg
+}
+
+public enum PreviewStatus: String, Codable, Sendable {
+    case idle
+    case loading
+    case success
+    case failed
+}
+
+public enum GenerationStatus: String, Codable, Sendable {
+    case idle
+    case queued
+    case running
+    case success
+    case failed
+    case cancelled
+}
+
+public struct AppSettings: Codable, Equatable, Sendable {
+    public var selectedAgentID: String?
+    public var promptTemplate: String
+    public var outputDirectoryPath: String?
+    public var figmaToken: String
+    public var defaultExportFormat: ExportFormat
+    public var defaultGenerationMode: GenerationMode
+    public var parallelism: Int
+
+    public init(
+        selectedAgentID: String? = nil,
+        promptTemplate: String,
+        outputDirectoryPath: String? = nil,
+        figmaToken: String,
+        defaultExportFormat: ExportFormat,
+        defaultGenerationMode: GenerationMode,
+        parallelism: Int
+    ) {
+        self.selectedAgentID = selectedAgentID
+        self.promptTemplate = promptTemplate
+        self.outputDirectoryPath = outputDirectoryPath
+        self.figmaToken = figmaToken
+        self.defaultExportFormat = defaultExportFormat
+        self.defaultGenerationMode = defaultGenerationMode
+        self.parallelism = parallelism
+    }
+
+    public static let defaultPrompt = """
+    Generate a clean YAML description for this Figma node.
+    Include layout, typography, colors, spacing, assets, and interaction notes when visible.
+    Return YAML only.
+    """
+
+    public static let defaultValue = AppSettings(
+        promptTemplate: AppSettings.defaultPrompt,
+        figmaToken: "",
+        defaultExportFormat: .png,
+        defaultGenerationMode: .sequential,
+        parallelism: 2
+    )
+}
+
+public struct AgentDescriptor: Codable, Equatable, Identifiable, Sendable {
+    public let provider: AgentProvider
+    public let path: String
+    public let version: String
+
+    public init(provider: AgentProvider, path: String, version: String) {
+        self.provider = provider
+        self.path = path
+        self.version = version
+    }
+
+    public var id: String {
+        provider.id
+    }
+}
+
+public struct FigmaResourceItem: Codable, Equatable, Identifiable, Sendable {
+    public enum ResourceKind: String, Codable, Sendable {
+        case image
+        case icon
+        case export
+    }
+
+    public let id: UUID
+    public var name: String
+    public var kind: ResourceKind
+    public var format: ExportFormat
+    public var remoteURL: String?
+    public var localPath: String?
+
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        kind: ResourceKind,
+        format: ExportFormat,
+        remoteURL: String? = nil,
+        localPath: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.format = format
+        self.remoteURL = remoteURL
+        self.localPath = localPath
+    }
+}
+
+public struct FigmaLinkItem: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var rawInputLine: String
+    public var title: String?
+    public var url: String
+    public var fileKey: String
+    public var nodeId: String
+    public var previewStatus: PreviewStatus
+    public var resourceStatus: PreviewStatus
+    public var previewImagePath: String?
+    public var resourceItems: [FigmaResourceItem]
+    public var generationStatus: GenerationStatus
+    public var generatedYAMLPath: String?
+    public var errorMessage: String?
+    public var nodeName: String?
+    public var agentOutputPath: String?
+    public var logSummary: String?
+
+    public init(
+        id: UUID = UUID(),
+        rawInputLine: String,
+        title: String?,
+        url: String,
+        fileKey: String,
+        nodeId: String,
+        previewStatus: PreviewStatus = .idle,
+        resourceStatus: PreviewStatus = .idle,
+        previewImagePath: String? = nil,
+        resourceItems: [FigmaResourceItem] = [],
+        generationStatus: GenerationStatus = .idle,
+        generatedYAMLPath: String? = nil,
+        errorMessage: String? = nil,
+        nodeName: String? = nil,
+        agentOutputPath: String? = nil,
+        logSummary: String? = nil
+    ) {
+        self.id = id
+        self.rawInputLine = rawInputLine
+        self.title = title
+        self.url = url
+        self.fileKey = fileKey
+        self.nodeId = nodeId
+        self.previewStatus = previewStatus
+        self.resourceStatus = resourceStatus
+        self.previewImagePath = previewImagePath
+        self.resourceItems = resourceItems
+        self.generationStatus = generationStatus
+        self.generatedYAMLPath = generatedYAMLPath
+        self.errorMessage = errorMessage
+        self.nodeName = nodeName
+        self.agentOutputPath = agentOutputPath
+        self.logSummary = logSummary
+    }
+}
+
+public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public var createdAt: Date
+    public var agent: AgentProvider
+    public var promptSnapshot: String
+    public var sourceInputText: String
+    public var outputDirectory: String
+    public var mode: GenerationMode
+    public var items: [FigmaLinkItem]
+
+    public init(
+        id: String,
+        createdAt: Date,
+        agent: AgentProvider,
+        promptSnapshot: String,
+        sourceInputText: String,
+        outputDirectory: String,
+        mode: GenerationMode,
+        items: [FigmaLinkItem]
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.agent = agent
+        self.promptSnapshot = promptSnapshot
+        self.sourceInputText = sourceInputText
+        self.outputDirectory = outputDirectory
+        self.mode = mode
+        self.items = items
+    }
+}
+
+public struct ParsedLinkResult: Sendable {
+    public let items: [FigmaLinkItem]
+    public let errors: [String]
+
+    public init(items: [FigmaLinkItem], errors: [String]) {
+        self.items = items
+        self.errors = errors
+    }
+}
+
+public struct PersistedBatch: Sendable {
+    public let summary: GenerationBatch
+    public let batchDirectory: URL
+    public let itemDirectories: [URL]
+
+    public init(summary: GenerationBatch, batchDirectory: URL, itemDirectories: [URL]) {
+        self.summary = summary
+        self.batchDirectory = batchDirectory
+        self.itemDirectories = itemDirectories
+    }
+}
+
+public struct FigmaNodePayload: Sendable, Equatable {
+    public var name: String
+    public var previewURL: String?
+    public var resources: [FigmaResourceItem]
+
+    public init(name: String, previewURL: String?, resources: [FigmaResourceItem]) {
+        self.name = name
+        self.previewURL = previewURL
+        self.resources = resources
+    }
+}

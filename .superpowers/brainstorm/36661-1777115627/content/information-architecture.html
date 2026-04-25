@@ -1,0 +1,77 @@
+<h2>macOS Figma YAML 工具信息架构</h2>
+<p class="subtitle">选择你更想要的主界面组织方式。A 更偏单窗口分栏工作台，B 更偏标准列表详情。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. 双页签工作台</div>
+        <div class="mockup-body">
+          <div class="mock-nav">生成 | 查看 | 设置</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div class="mock-sidebar" style="width:28%;">Agent 选择<br>Prompt<br>Figma 输入<br>按钮区</div>
+            <div class="mock-content" style="width:36%;">链接列表<br>预览图<br>图标资源</div>
+            <div class="mock-content" style="width:36%;">任务状态<br>生成结果<br>错误信息</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 单窗口工作台</h3>
+      <p>生成页集中完成 agent 选择、链接解析、预览、下载、生成。查看页单独浏览历史结果。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>单次工作流连贯</li>
+            <li>预览与生成关联紧密</li>
+            <li>更适合这次需求里的“重置后新一轮工作”</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>缺点</h4>
+          <ul>
+            <li>生成页信息密度较高</li>
+            <li>需要更细的分区设计</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. 导航分步式</div>
+        <div class="mockup-body">
+          <div class="mock-nav">准备 | 预览 | 生成 | 结果</div>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <div class="mock-sidebar" style="width:24%;">左侧导航</div>
+            <div class="mock-content" style="width:76%;">当前步骤详情页</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 分步导航</h3>
+      <p>把准备、预览、生成、结果拆成独立页面，像桌面生产力工具一样逐步推进。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>单页职责更清晰</li>
+            <li>界面更整洁</li>
+            <li>后续扩展步骤更容易</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>缺点</h4>
+          <ul>
+            <li>跨步骤回看成本更高</li>
+            <li>“添加链接后立即预览”不如工作台自然</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

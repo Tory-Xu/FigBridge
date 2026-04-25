@@ -1,0 +1,41 @@
+import Foundation
+import Testing
+@testable import FigBridgeCore
+
+struct BatchImportExportTests {
+    @Test func exportsBatchAsZipAndImportsDirectoryWithRename() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let batch = GenerationBatch(
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            items: [item]
+        )
+
+        let persisted = try store.createBatch(batch)
+        let zipURL = sandbox.root.appendingPathComponent("batch-1.zip")
+        try store.exportBatch(at: persisted.batchDirectory, to: zipURL)
+
+        #expect(FileManager.default.fileExists(atPath: zipURL.path))
+
+        let importedURL = try store.importBatchDirectory(from: persisted.batchDirectory)
+        let importedAgainURL = try store.importBatchDirectory(from: persisted.batchDirectory)
+
+        #expect(importedURL.lastPathComponent == "batch-1-imported")
+        #expect(importedAgainURL.lastPathComponent == "batch-1-imported-2")
+    }
+}

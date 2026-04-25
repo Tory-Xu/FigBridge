@@ -1,0 +1,45 @@
+import Foundation
+import Testing
+@testable import FigBridgeCore
+
+struct SettingsStoreTests {
+    @Test func persistsAndLoadsSettings() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let store = SettingsStore(fileURL: sandbox.root.appendingPathComponent("settings.json"))
+        var settings = AppSettings.defaultValue
+        settings.selectedAgentID = AgentProvider.codex.id
+        settings.promptTemplate = "custom prompt"
+        settings.parallelism = 4
+
+        try store.save(settings)
+        let loaded = try store.load()
+
+        #expect(loaded.selectedAgentID == AgentProvider.codex.id)
+        #expect(loaded.promptTemplate == "custom prompt")
+        #expect(loaded.parallelism == 4)
+    }
+
+    @Test func fallsBackToDefaultForMissingFile() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let store = SettingsStore(fileURL: sandbox.root.appendingPathComponent("missing.json"))
+
+        let loaded = try store.load()
+
+        #expect(loaded == AppSettings.defaultValue)
+    }
+
+    @Test func clearsUnavailableSelectedAgent() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let store = SettingsStore(fileURL: sandbox.root.appendingPathComponent("settings.json"))
+        var settings = AppSettings.defaultValue
+        settings.selectedAgentID = AgentProvider.claude.id
+        try store.save(settings)
+
+        let sanitized = try store.loadValidatingSelectedAgent(availableAgents: [.codex])
+
+        #expect(sanitized.selectedAgentID == nil)
+    }
+}
