@@ -17,27 +17,67 @@ public final class BatchStore: Sendable {
     public func createBatch(_ batch: GenerationBatch) throws -> PersistedBatch {
         let batchDirectory = rootDirectory.appendingPathComponent(batch.id, isDirectory: true)
         try FileManager.default.createDirectory(at: batchDirectory, withIntermediateDirectories: true)
-        let sourceInputURL = batchDirectory.appendingPathComponent("source-input.txt")
-        try batch.sourceInputText.write(to: sourceInputURL, atomically: true, encoding: .utf8)
+        return try writeBatch(batch, into: batchDirectory)
+    }
 
-        var itemDirectories: [URL] = []
-        let itemsDirectory = batchDirectory.appendingPathComponent("items", isDirectory: true)
-        try FileManager.default.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
+    public func loadBatch(id: String) throws -> PersistedBatch? {
+        let batchDirectory = rootDirectory.appendingPathComponent(id, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: batchDirectory.appendingPathComponent("batch.json").path) else {
+            return nil
+        }
+        return try loadBatch(at: batchDirectory)
+    }
 
-        for (index, item) in batch.items.enumerated() {
-            let itemDirectory = itemsDirectory.appendingPathComponent("\(String(format: "%02d", index + 1))-\(slug(for: item.nodeName ?? item.nodeId))", isDirectory: true)
-            try FileManager.default.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
-            let metaURL = itemDirectory.appendingPathComponent("meta.json")
-            let data = try encoder.encode(item)
-            try data.write(to: metaURL)
-            itemDirectories.append(itemDirectory)
+    public func updateBatch(
+        id: String,
+        sourceInputText: String,
+        agent: AgentProvider,
+        promptSnapshot: String,
+        outputDirectory: URL,
+        mode: GenerationMode,
+        items: [FigmaLinkItem]
+    ) throws -> PersistedBatch {
+        let batchDirectory = rootDirectory.appendingPathComponent(id, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: batchDirectory.appendingPathComponent("batch.json").path) else {
+            throw BatchStoreError.invalidBatchDirectory
+        }
+        let existing = try loadBatch(at: batchDirectory)
+        let batch = GenerationBatch(
+            id: existing.summary.id,
+            createdAt: existing.summary.createdAt,
+            agent: agent,
+            promptSnapshot: promptSnapshot,
+            sourceInputText: sourceInputText,
+            outputDirectory: outputDirectory.path,
+            mode: mode,
+            items: items
+        )
+        return try writeBatch(batch, into: batchDirectory)
+    }
+
+    public func deleteBatchItem(batchID: String, itemID: UUID) throws {
+        guard let persisted = try loadBatch(id: batchID) else {
+            throw BatchStoreError.invalidBatchDirectory
+        }
+        let updatedItems = persisted.summary.items.filter { $0.id != itemID }
+        guard updatedItems.count != persisted.summary.items.count else {
+            return
         }
 
-        let batchURL = batchDirectory.appendingPathComponent("batch.json")
-        let batchData = try encoder.encode(batch)
-        try batchData.write(to: batchURL)
+        if let itemDirectory = itemDirectory(in: persisted.batchDirectory, itemID: itemID),
+           FileManager.default.fileExists(atPath: itemDirectory.path) {
+            try FileManager.default.removeItem(at: itemDirectory)
+        }
 
-        return PersistedBatch(summary: batch, batchDirectory: batchDirectory, itemDirectories: itemDirectories)
+        _ = try updateBatch(
+            id: batchID,
+            sourceInputText: persisted.summary.sourceInputText,
+            agent: persisted.summary.agent,
+            promptSnapshot: persisted.summary.promptSnapshot,
+            outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
+            mode: persisted.summary.mode,
+            items: updatedItems
+        )
     }
 
     public func scanBatches() throws -> [PersistedBatch] {
@@ -55,12 +95,7 @@ public final class BatchStore: Sendable {
             guard FileManager.default.fileExists(atPath: batchURL.path) else {
                 return nil
             }
-            let data = try Data(contentsOf: batchURL)
-            let batch = try decoder.decode(GenerationBatch.self, from: data)
-
-            let itemsDirectory = url.appendingPathComponent("items")
-            let itemDirectories = (try? FileManager.default.contentsOfDirectory(at: itemsDirectory, includingPropertiesForKeys: nil)) ?? []
-            return PersistedBatch(summary: batch, batchDirectory: url, itemDirectories: itemDirectories)
+            return try loadBatch(at: url)
         }
         .sorted { $0.summary.createdAt > $1.summary.createdAt }
     }
@@ -197,6 +232,65 @@ public final class BatchStore: Sendable {
             }
             index += 1
         }
+    }
+
+    private func writeBatch(_ batch: GenerationBatch, into batchDirectory: URL) throws -> PersistedBatch {
+        let sourceInputURL = batchDirectory.appendingPathComponent("source-input.txt")
+        try batch.sourceInputText.write(to: sourceInputURL, atomically: true, encoding: .utf8)
+
+        let itemsDirectory = batchDirectory.appendingPathComponent("items", isDirectory: true)
+        try FileManager.default.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
+
+        let existingDirectories = existingItemDirectoryMap(in: itemsDirectory)
+        let validDirectoryNames = Set(batch.items.map { directoryName(for: $0) })
+
+        for (name, url) in existingDirectories where !validDirectoryNames.contains(name) {
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        var itemDirectories: [URL] = []
+        for item in batch.items {
+            let itemDirectory = itemsDirectory.appendingPathComponent(directoryName(for: item), isDirectory: true)
+            try FileManager.default.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
+            let metaURL = itemDirectory.appendingPathComponent("meta.json")
+            let data = try encoder.encode(item)
+            try data.write(to: metaURL)
+            itemDirectories.append(itemDirectory)
+        }
+
+        let batchURL = batchDirectory.appendingPathComponent("batch.json")
+        let batchData = try encoder.encode(batch)
+        try batchData.write(to: batchURL)
+
+        return PersistedBatch(summary: batch, batchDirectory: batchDirectory, itemDirectories: itemDirectories)
+    }
+
+    private func loadBatch(at directory: URL) throws -> PersistedBatch {
+        let batchURL = directory.appendingPathComponent("batch.json")
+        let data = try Data(contentsOf: batchURL)
+        let batch = try decoder.decode(GenerationBatch.self, from: data)
+        let itemDirectories = batch.items.compactMap { itemDirectory(in: directory, itemID: $0.id) }
+        return PersistedBatch(summary: batch, batchDirectory: directory, itemDirectories: itemDirectories)
+    }
+
+    private func existingItemDirectoryMap(in itemsDirectory: URL) -> [String: URL] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: itemsDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: entries.map { ($0.lastPathComponent, $0) })
+    }
+
+    private func directoryName(for item: FigmaLinkItem) -> String {
+        "\(item.id.uuidString.lowercased())-\(slug(for: item.nodeName ?? item.title ?? item.nodeId))"
+    }
+
+    private func itemDirectory(in batchDirectory: URL, itemID: UUID) -> URL? {
+        let itemsDirectory = batchDirectory.appendingPathComponent("items", isDirectory: true)
+        guard let entries = try? FileManager.default.contentsOfDirectory(at: itemsDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+            return nil
+        }
+        let prefix = itemID.uuidString.lowercased()
+        return entries.first(where: { $0.lastPathComponent.hasPrefix(prefix) })
     }
 }
 

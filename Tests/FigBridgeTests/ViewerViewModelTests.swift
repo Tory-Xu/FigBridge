@@ -120,6 +120,58 @@ struct ViewerViewModelTests {
         #expect(viewModel.selectedYAMLText == nil)
     }
 
+    @Test func reloadReadsLatestBatchAfterIncrementalUpdate() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let initial = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        let newItem = makeItem(title: "Item B", nodeId: "1:2", yamlText: "yaml-b")
+        _ = try store.updateBatch(
+            id: initial.summary.id,
+            sourceInputText: "source-2",
+            agent: initial.summary.agent,
+            promptSnapshot: initial.summary.promptSnapshot,
+            outputDirectory: URL(fileURLWithPath: initial.summary.outputDirectory, isDirectory: true),
+            mode: initial.summary.mode,
+            items: initial.summary.items + [newItem]
+        )
+
+        let rescanned = try #require(try store.loadBatch(id: initial.summary.id))
+        let newItemDirectory = try #require(rescanned.itemDirectories.last)
+        let yamlURL = newItemDirectory.appendingPathComponent("generated.yaml")
+        try "yaml-b".write(to: yamlURL, atomically: true, encoding: .utf8)
+
+        var updatedItems = rescanned.summary.items
+        updatedItems[1].generatedYAMLPath = yamlURL.path
+        _ = try store.updateBatch(
+            id: rescanned.summary.id,
+            sourceInputText: "source-2",
+            agent: rescanned.summary.agent,
+            promptSnapshot: rescanned.summary.promptSnapshot,
+            outputDirectory: URL(fileURLWithPath: rescanned.summary.outputDirectory, isDirectory: true),
+            mode: rescanned.summary.mode,
+            items: updatedItems
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        viewModel.selectedItemID = updatedItems[1].id
+
+        #expect(viewModel.selectedBatch?.summary.items.count == 2)
+        #expect(viewModel.selectedYAMLText == "yaml-b")
+        #expect(viewModel.selectedSourceInputText == "source-2")
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,

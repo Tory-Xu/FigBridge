@@ -26,32 +26,51 @@ public struct GenerationCoordinator: Sendable {
         outputDirectory: URL,
         mode: GenerationMode,
         parallelism: Int,
+        existingBatchID: String? = nil,
         items: [FigmaLinkItem],
         progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)? = nil
     ) async throws -> PersistedBatch {
-        let batchID = BatchNaming.makeBatchID()
+        let existingBatch = try existingBatchID.flatMap { try batchStore.loadBatch(id: $0) }
+        let batchID = existingBatch?.summary.id ?? BatchNaming.makeBatchID()
         let batchDirectory = outputDirectory.appendingPathComponent(batchID, isDirectory: true)
         try FileManager.default.createDirectory(at: batchDirectory, withIntermediateDirectories: true)
 
-        let resolvedItems: [FigmaLinkItem]
+        let pendingItems = items.filter { $0.generatedYAMLPath == nil }
+        let resolvedPendingItems: [FigmaLinkItem]
+
         switch mode {
         case .sequential:
-            resolvedItems = try await runSequential(items: items, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, progress: progress)
+            resolvedPendingItems = try await runSequential(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, progress: progress)
         case .parallel:
-            resolvedItems = try await runParallel(items: items, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, progress: progress)
+            resolvedPendingItems = try await runParallel(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, progress: progress)
         }
 
-        let batch = GenerationBatch(
+        let resolvedMap = Dictionary(uniqueKeysWithValues: resolvedPendingItems.map { ($0.id, $0) })
+        let resolvedItems = items.map { resolvedMap[$0.id] ?? $0 }
+
+        if existingBatch == nil {
+            let batch = GenerationBatch(
+                id: batchID,
+                createdAt: Date(),
+                agent: agent,
+                promptSnapshot: promptTemplate,
+                sourceInputText: sourceInputText,
+                outputDirectory: outputDirectory.path,
+                mode: mode,
+                items: resolvedItems
+            )
+            return try batchStore.createBatch(batch)
+        }
+
+        return try batchStore.updateBatch(
             id: batchID,
-            createdAt: Date(),
+            sourceInputText: sourceInputText,
             agent: agent,
             promptSnapshot: promptTemplate,
-            sourceInputText: sourceInputText,
-            outputDirectory: outputDirectory.path,
+            outputDirectory: outputDirectory,
             mode: mode,
             items: resolvedItems
         )
-        return try batchStore.createBatch(batch)
     }
 
     private func runSequential(items: [FigmaLinkItem], provider: AgentProvider, promptTemplate: String, batchDirectory: URL, progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?) async throws -> [FigmaLinkItem] {
@@ -108,7 +127,7 @@ public struct GenerationCoordinator: Sendable {
         resolvedItem.generationStatus = .running
         try Task.checkCancellation()
         let prompt = PromptBuilder.makePrompt(template: promptTemplate, item: item)
-        let itemDirectory = batchDirectory.appendingPathComponent("items/\(String(format: "%02d", index + 1))-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
+        let itemDirectory = batchDirectory.appendingPathComponent("items/\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
         let yamlDirectory = itemDirectory.appendingPathComponent("yaml", isDirectory: true)
         try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
 
@@ -121,9 +140,12 @@ public struct GenerationCoordinator: Sendable {
             resolvedItem.generatedYAMLPath = yamlURL.path
             resolvedItem.agentOutputPath = rawOutputURL.path
             resolvedItem.generationStatus = .success
+            resolvedItem.errorMessage = nil
             resolvedItem.logSummary = "\(provider.displayName) 已执行：\(result.executablePath)"
         } catch {
             resolvedItem.generationStatus = .failed
+            resolvedItem.generatedYAMLPath = nil
+            resolvedItem.agentOutputPath = nil
             resolvedItem.errorMessage = error.localizedDescription
             resolvedItem.logSummary = "执行失败"
         }

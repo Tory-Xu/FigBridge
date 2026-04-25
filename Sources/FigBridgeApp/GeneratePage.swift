@@ -29,9 +29,19 @@ struct GeneratePage: View {
                     Text("并发").tag(GenerationMode.parallel)
                 }
                 Stepper("并发数 \(viewModel.parallelism)", value: $viewModel.parallelism, in: 1...8)
-                TextEditor(text: $viewModel.inputText)
-                    .font(.body.monospaced())
-                    .frame(minHeight: 240)
+                ZStack(alignment: .topLeading) {
+                    TextEditor(text: $viewModel.inputText)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 240)
+                    if viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("请输入要添加的信息")
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
                 HStack {
                     Button("添加") {
                         viewModel.addInput()
@@ -52,7 +62,7 @@ struct GeneratePage: View {
                     }
                 }
                 if viewModel.isGenerating {
-                    ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.items.count, 1)))
+                    ProgressView(value: Double(viewModel.completedCount), total: Double(max(viewModel.pendingItems.count, 1)))
                     Text(viewModel.progressText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -67,27 +77,8 @@ struct GeneratePage: View {
             .frame(minWidth: 360)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("待处理链接")
-                    .font(.title3.bold())
-                List(selection: $viewModel.selectedItemID) {
-                    ForEach(viewModel.items) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title ?? item.nodeName ?? item.nodeId)
-                                .font(.headline)
-                            Text("\(item.fileKey) / \(item.nodeId)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(item.generationStatus.rawValue)
-                                .font(.caption)
-                            if let logSummary = item.logSummary {
-                                Text(logSummary)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .tag(item.id)
-                    }
-                }
+                itemSection(title: "待处理链接", items: viewModel.pendingItems, showsGeneratedState: false)
+                itemSection(title: "已处理链接", items: viewModel.processedItems, showsGeneratedState: true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 320)
@@ -171,6 +162,48 @@ struct GeneratePage: View {
         }
         .task(id: viewModel.selectedItemID) {
             await viewModel.loadSelectedItemPreviewIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private func itemSection(title: String, items: [FigmaLinkItem], showsGeneratedState: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(title) (\(items.count))")
+                    .font(.title3.bold())
+                Spacer()
+            }
+            List(selection: $viewModel.selectedItemID) {
+                ForEach(items) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title ?? item.nodeName ?? item.nodeId)
+                                .font(.headline)
+                            Text("\(item.fileKey) / \(item.nodeId)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(item.generationStatus.rawValue)
+                                .font(.caption)
+                            if showsGeneratedState {
+                                Text("YAML 已生成")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let logSummary = item.logSummary {
+                                Text(logSummary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button("删除") {
+                            viewModel.deleteItem(id: item.id)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .tag(item.id)
+                }
+            }
         }
     }
 }

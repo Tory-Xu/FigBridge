@@ -96,6 +96,8 @@ final class GenerateViewModel: ObservableObject {
     @Published var isGenerating: Bool = false
     @Published var progressText: String = ""
     @Published var completedCount: Int = 0
+    @Published var currentBatchID: String?
+    @Published var currentBatchDirectory: String?
 
     private let settingsViewModel: SettingsViewModel
     private let batchStore: BatchStore
@@ -119,8 +121,20 @@ final class GenerateViewModel: ObservableObject {
         return items.first(where: { $0.id == selectedItemID })
     }
 
+    var pendingItems: [FigmaLinkItem] {
+        items.filter { $0.generatedYAMLPath == nil }
+    }
+
+    var processedItems: [FigmaLinkItem] {
+        items.filter { $0.generatedYAMLPath != nil }
+    }
+
     var canGenerate: Bool {
-        !isGenerating && selectedAgentID != nil && !promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !outputDirectoryPath.isEmpty && !items.isEmpty
+        !isGenerating
+        && selectedAgentID != nil
+        && !promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && !outputDirectoryPath.isEmpty
+        && !pendingItems.isEmpty
     }
 
     func bootstrap() async {
@@ -138,11 +152,20 @@ final class GenerateViewModel: ObservableObject {
     }
 
     func addInput() {
+        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInput.isEmpty else {
+            validationMessage = "请输入要添加的信息"
+            return
+        }
+
         let result = parser.parse(inputText)
         validationMessage = result.errors.joined(separator: "\n")
         let existing = Set(items.map { "\($0.fileKey)|\($0.nodeId)" })
         let newItems = result.items.filter { !existing.contains("\($0.fileKey)|\($0.nodeId)") }
         items.append(contentsOf: newItems)
+        if !newItems.isEmpty {
+            inputText = ""
+        }
         if selectedItemID == nil {
             selectedItemID = items.first?.id
         }
@@ -154,6 +177,10 @@ final class GenerateViewModel: ObservableObject {
         selectedItemID = nil
         validationMessage = ""
         exportMessage = ""
+        progressText = ""
+        completedCount = 0
+        currentBatchID = nil
+        currentBatchDirectory = nil
     }
 
     func generate() async {
@@ -169,9 +196,14 @@ final class GenerateViewModel: ObservableObject {
 
         isGenerating = true
         completedCount = 0
-        progressText = "准备生成 \(items.count) 项"
+        let pendingItemIDs = Set(pendingItems.map(\.id))
+        let pendingTotal = pendingItemIDs.count
+        progressText = "准备生成 \(pendingTotal) 项"
         validationMessage = ""
         for index in items.indices {
+            guard pendingItemIDs.contains(items[index].id) else {
+                continue
+            }
             items[index].generationStatus = .queued
             items[index].logSummary = "等待执行"
             items[index].errorMessage = nil
@@ -185,6 +217,7 @@ final class GenerateViewModel: ObservableObject {
                 outputDirectory: URL(fileURLWithPath: outputDirectoryPath, isDirectory: true),
                 mode: mode,
                 parallelism: parallelism,
+                existingBatchID: currentBatchID,
                 items: items,
                 progress: { [weak self] completed, total, item in
                     await MainActor.run {
@@ -205,6 +238,8 @@ final class GenerateViewModel: ObservableObject {
         do {
             let persisted = try await task.value
             items = persisted.summary.items
+            currentBatchID = persisted.summary.id
+            currentBatchDirectory = persisted.batchDirectory.path
             validationMessage = "生成完成"
         } catch is CancellationError {
             validationMessage = "生成已取消"
@@ -218,6 +253,26 @@ final class GenerateViewModel: ObservableObject {
 
     func cancelGeneration() {
         generationTask?.cancel()
+    }
+
+    func deleteItem(id: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let removedItem = items.remove(at: index)
+
+        if let currentBatchID {
+            do {
+                try batchStore.deleteBatchItem(batchID: currentBatchID, itemID: removedItem.id)
+            } catch {
+                validationMessage = error.localizedDescription
+            }
+        }
+
+        if selectedItemID == removedItem.id {
+            let nextSelection = items.indices.contains(index) ? items[index].id : items.last?.id
+            selectedItemID = nextSelection
+        }
     }
 
     func chooseOutputDirectory() {
