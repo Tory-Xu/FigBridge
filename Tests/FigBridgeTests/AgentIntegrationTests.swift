@@ -51,7 +51,7 @@ struct AgentIntegrationTests {
               exit 0
             fi
             if [ "$1" = "exec" ]; then
-              printf "%s" "$2" > "\(logPath.path)"
+              printf "%s" "$3" > "\(logPath.path)"
               echo "kind: yaml"
               exit 0
             fi

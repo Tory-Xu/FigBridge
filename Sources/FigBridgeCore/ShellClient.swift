@@ -36,7 +36,7 @@ public struct ShellClient: Sendable {
             let task = Process()
             task.executableURL = executable
             task.arguments = arguments
-            task.environment = environment
+            task.environment = runtimeEnvironment()
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
@@ -107,5 +107,14 @@ public struct ShellClient: Sendable {
         }
 
         return orderedDirectories
+    }
+
+    private func runtimeEnvironment() -> [String: String] {
+        var merged = environment
+        let path = searchDirectories().map(\.path).joined(separator: ":")
+        if !path.isEmpty {
+            merged["PATH"] = path
+        }
+        return merged
     }
 }

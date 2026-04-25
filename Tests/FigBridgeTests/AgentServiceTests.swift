@@ -64,7 +64,7 @@ struct AgentServiceTests {
         let claudePath = sandbox.root.appendingPathComponent("claude")
         let codexPath = sandbox.root.appendingPathComponent("codex")
         try makeExecutable(at: claudePath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"claude 1.0.0\"\nelif [ \"$1\" = \"-p\" ]; then\n  echo \"$2\"\nelse\n  exit 1\nfi\n")
-        try makeExecutable(at: codexPath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex 2.0.0\"\nelif [ \"$1\" = \"exec\" ]; then\n  echo \"$2\"\nelse\n  exit 1\nfi\n")
+        try makeExecutable(at: codexPath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"codex 2.0.0\"\nelif [ \"$1\" = \"exec\" ]; then\n  echo \"$3\"\nelse\n  exit 1\nfi\n")
 
         let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
         let service = AgentService(shellClient: shell)
@@ -74,5 +74,46 @@ struct AgentServiceTests {
 
         #expect(claudeOutput == "hello")
         #expect(codexOutput == "world")
+    }
+
+    @Test func runUsesExpandedPathForWrapperDependencies() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let homeDirectory = sandbox.root.appendingPathComponent("home", isDirectory: true)
+        let wrapperDirectory = homeDirectory.appendingPathComponent(".superconductor/bin", isDirectory: true)
+        let nodeDirectory = homeDirectory.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nodeDirectory, withIntermediateDirectories: true)
+
+        let nodePath = nodeDirectory.appendingPathComponent("node")
+        try makeExecutable(at: nodePath, body: "#!/bin/sh\necho \"fake node\"\n")
+
+        let claudePath = wrapperDirectory.appendingPathComponent("claude")
+        try makeExecutable(
+            at: claudePath,
+            body: """
+            #!/bin/sh
+            if [ "$1" = "--version" ]; then
+              echo "claude wrapper"
+              exit 0
+            fi
+            env node >/dev/null 2>&1 || { echo "env: node: No such file or directory" >&2; exit 127; }
+            echo "$2"
+            """
+        )
+
+        let shell = ShellClient(
+            pathLookupDirectories: [],
+            environment: [
+                "HOME": homeDirectory.path,
+                "PATH": "/usr/bin:/bin"
+            ]
+        )
+        let service = AgentService(shellClient: shell)
+
+        let output = try await service.run(provider: .claude, prompt: "hello with node")
+
+        #expect(output == "hello with node")
     }
 }

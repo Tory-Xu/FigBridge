@@ -68,7 +68,7 @@ public struct AgentService: Sendable {
         case .claude:
             arguments = ["-p", prompt]
         case .codex:
-            arguments = ["exec", prompt]
+            arguments = ["exec", "--skip-git-repo-check", prompt]
         }
 
         guard let executable = shellClient.resolveExecutable(named: provider.rawValue) else {
