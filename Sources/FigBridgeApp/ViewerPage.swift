@@ -11,23 +11,53 @@ struct ViewerPage: View {
                     Text("批次")
                         .font(.title3.bold())
                     Spacer()
-                    Button("导入目录") {
-                        viewModel.importBatchDirectoryUsingPanel()
-                    }
-                    Button("导入 Zip") {
-                        viewModel.importBatchZipUsingPanel()
-                    }
-                    Button("导出批次") {
-                        viewModel.exportSelectedBatch()
-                    }
-                    Button("打开目录") {
-                        viewModel.openSelectedBatchInFinder()
-                    }
-                    Button("删除批次") {
-                        viewModel.deleteSelectedBatch()
-                    }
-                    Button("重新扫描") {
-                        viewModel.reload()
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            viewerActionButton("导入目录", systemImage: "folder.badge.plus") {
+                                viewModel.importBatchDirectoryUsingPanel()
+                            }
+                            viewerActionButton("导入 Zip", systemImage: "shippingbox") {
+                                viewModel.importBatchZipUsingPanel()
+                            }
+                            viewerActionButton("导出批次", systemImage: "square.and.arrow.up") {
+                                viewModel.exportSelectedBatch()
+                            }
+                            viewerActionButton("打开目录", systemImage: "folder") {
+                                viewModel.openSelectedBatchInFinder()
+                            }
+                            viewerActionButton("删除批次", systemImage: "trash") {
+                                viewModel.deleteSelectedBatch()
+                            }
+                            viewerActionButton("重新扫描", systemImage: "arrow.clockwise") {
+                                viewModel.reload()
+                            }
+                        }
+
+                        Menu {
+                            Button("导入目录", systemImage: "folder.badge.plus") {
+                                viewModel.importBatchDirectoryUsingPanel()
+                            }
+                            Button("导入 Zip", systemImage: "shippingbox") {
+                                viewModel.importBatchZipUsingPanel()
+                            }
+                            Button("导出批次", systemImage: "square.and.arrow.up") {
+                                viewModel.exportSelectedBatch()
+                            }
+                            Button("打开目录", systemImage: "folder") {
+                                viewModel.openSelectedBatchInFinder()
+                            }
+                            Button("删除批次", systemImage: "trash") {
+                                viewModel.deleteSelectedBatch()
+                            }
+                            Divider()
+                            Button("重新扫描", systemImage: "arrow.clockwise") {
+                                viewModel.reload()
+                            }
+                        } label: {
+                            Label("批次操作", systemImage: "ellipsis.circle")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .menuStyle(.borderlessButton)
                     }
                 }
                 List(selection: $viewModel.selectedBatchID) {
@@ -159,5 +189,14 @@ struct ViewerPage: View {
                     .padding()
             }
         }
+    }
+
+    private func viewerActionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .help(title)
+        }
+        .buttonStyle(.bordered)
     }
 }
