@@ -301,13 +301,28 @@ final class GenerateViewModel: ObservableObject {
 @MainActor
 final class ViewerViewModel: ObservableObject {
     @Published var batches: [PersistedBatch] = []
-    @Published var selectedBatchID: String?
-    @Published var selectedItemID: UUID?
+    @Published var selectedBatchID: String? {
+        didSet {
+            guard !isSynchronizingSelection, oldValue != selectedBatchID else {
+                return
+            }
+            synchronizeSelectionForCurrentBatch(resetItemSelection: true)
+        }
+    }
+    @Published var selectedItemID: UUID? {
+        didSet {
+            guard !isSynchronizingSelection, oldValue != selectedItemID else {
+                return
+            }
+            synchronizeSelectedItem()
+        }
+    }
     @Published var selectedYAMLText: String?
     @Published var selectedSourceInputText: String?
     @Published var message: String = ""
 
     private let batchStore: BatchStore
+    private var isSynchronizingSelection = false
 
     init(batchStore: BatchStore) {
         self.batchStore = batchStore
@@ -337,12 +352,7 @@ final class ViewerViewModel: ObservableObject {
     func reload() {
         do {
             batches = try batchStore.scanBatches()
-            selectedBatchID = selectedBatchID ?? batches.first?.summary.id
-            if selectedItemID == nil {
-                selectedItemID = selectedBatch?.summary.items.first?.id
-            }
-            loadSelectedSourceInput()
-            loadSelectedYAML()
+            synchronizeSelectionForCurrentBatch(resetItemSelection: false)
             message = ""
         } catch {
             batches = []
@@ -437,5 +447,48 @@ final class ViewerViewModel: ObservableObject {
         }
         let sourceInputURL = batch.batchDirectory.appendingPathComponent("source-input.txt")
         selectedSourceInputText = try? String(contentsOf: sourceInputURL, encoding: .utf8)
+    }
+
+    private func synchronizeSelectionForCurrentBatch(resetItemSelection: Bool) {
+        isSynchronizingSelection = true
+        defer { isSynchronizingSelection = false }
+
+        let availableBatchIDs = Set(batches.map(\.summary.id))
+        if let selectedBatchID, !availableBatchIDs.contains(selectedBatchID) {
+            self.selectedBatchID = nil
+        }
+        if self.selectedBatchID == nil {
+            self.selectedBatchID = batches.first?.summary.id
+        }
+
+        loadSelectedSourceInput()
+
+        guard let batch = selectedBatch else {
+            selectedItemID = nil
+            selectedYAMLText = nil
+            return
+        }
+
+        let availableItemIDs = Set(batch.summary.items.map(\.id))
+        if resetItemSelection || selectedItemID == nil || !availableItemIDs.contains(selectedItemID!) {
+            selectedItemID = batch.summary.items.first?.id
+        }
+
+        loadSelectedYAML()
+    }
+
+    private func synchronizeSelectedItem() {
+        guard let batch = selectedBatch else {
+            selectedYAMLText = nil
+            return
+        }
+
+        if let currentSelectedItemID = selectedItemID, !batch.summary.items.contains(where: { $0.id == currentSelectedItemID }) {
+            isSynchronizingSelection = true
+            self.selectedItemID = batch.summary.items.first?.id
+            isSynchronizingSelection = false
+        }
+
+        loadSelectedYAML()
     }
 }

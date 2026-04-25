@@ -33,7 +33,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FigBridgeTests",
-            dependencies: ["FigBridgeCore"]
+            dependencies: ["FigBridgeCore", "FigBridgeApp"]
         ),
     ],
     swiftLanguageModes: [.v6]
