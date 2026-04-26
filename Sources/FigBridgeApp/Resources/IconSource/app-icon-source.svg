@@ -1,0 +1,74 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadowLarge" x="24" y="28" width="976" height="968" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dy="22"/>
+      <feGaussianBlur stdDeviation="24"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.067 0 0 0 0 0.086 0 0 0 0 0.153 0 0 0 0.16 0"/>
+      <feBlend in2="SourceGraphic" result="shape"/>
+    </filter>
+    <filter id="shadowCard" x="520" y="304" width="352" height="404" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dy="16"/>
+      <feGaussianBlur stdDeviation="18"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.067 0 0 0 0 0.086 0 0 0 0 0.153 0 0 0 0.14 0"/>
+      <feBlend in2="SourceGraphic" result="shape"/>
+    </filter>
+    <linearGradient id="frameStroke" x1="246" y1="256" x2="778" y2="768" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9C5CF6"/>
+      <stop offset="1" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="figmaPurple" x1="216" y1="476" x2="404" y2="608" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="figmaGreen" x1="216" y1="592" x2="404" y2="740" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14D78B"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="figmaBlue" x1="312" y1="476" x2="472" y2="628" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+    <linearGradient id="figmaOrange" x1="216" y1="364" x2="472" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F97316"/>
+      <stop offset="1" stop-color="#FF6B6B"/>
+    </linearGradient>
+    <linearGradient id="paperFold" x1="748" y1="320" x2="828" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D7DBEA"/>
+      <stop offset="1" stop-color="#B8BFD6"/>
+    </linearGradient>
+    <linearGradient id="paperFill" x1="560" y1="328" x2="796" y2="676" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F2F4F9"/>
+    </linearGradient>
+    <linearGradient id="bgGlow" x1="512" y1="64" x2="512" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F7F7FA"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bgGlow)"/>
+  <g filter="url(#shadowLarge)">
+    <rect x="72" y="64" width="880" height="856" rx="180" fill="#FEFEFF"/>
+  </g>
+  <path d="M260 292C260 258.863 286.863 232 320 232H704C737.137 232 764 258.863 764 292V304H744V292C744 269.909 726.091 252 704 252H320C297.909 252 280 269.909 280 292V304H260V292Z" fill="url(#frameStroke)"/>
+  <path d="M260 732V744C260 777.137 286.863 804 320 804H704C737.137 804 764 777.137 764 744V732H744V744C744 766.091 726.091 784 704 784H320C297.909 784 280 766.091 280 744V732H260Z" fill="url(#frameStroke)"/>
+  <path d="M260 304H280V362H260V304Z" fill="url(#frameStroke)"/>
+  <path d="M744 304H764V362H744V304Z" fill="url(#frameStroke)"/>
+  <path d="M260 674H280V732H260V674Z" fill="url(#frameStroke)"/>
+  <path d="M744 674H764V732H744V674Z" fill="url(#frameStroke)"/>
+  <path d="M216 390C216 358.52 241.52 333 273 333H370C401.48 333 427 358.52 427 390C427 421.48 401.48 447 370 447H273C241.52 447 216 421.48 216 390Z" fill="url(#figmaOrange)"/>
+  <path d="M216 504C216 472.52 241.52 447 273 447H330V561H273C241.52 561 216 535.48 216 504Z" fill="url(#figmaPurple)"/>
+  <path d="M216 618C216 586.52 241.52 561 273 561H330V675C330 706.48 304.48 732 273 732C241.52 732 216 706.48 216 675V618Z" fill="url(#figmaGreen)"/>
+  <circle cx="387" cy="504" r="57" fill="url(#figmaBlue)"/>
+  <path d="M462 485C462 478.373 467.373 473 474 473H512.515L489.757 450.243C485.071 445.556 485.071 437.959 489.757 433.272C494.444 428.586 502.041 428.586 506.728 433.272L550.456 477C555.142 481.687 555.142 489.284 550.456 493.971L506.728 537.698C502.041 542.385 494.444 542.385 489.757 537.698C485.071 533.012 485.071 525.414 489.757 520.728L512.515 497H474C467.373 497 462 491.627 462 485Z" fill="#16213D"/>
+  <g filter="url(#shadowCard)">
+    <path d="M556 344C556 322.013 573.013 305 595 305H726.431L810 388.569V610C810 631.987 792.987 649 771 649H595C573.013 649 556 631.987 556 610V344Z" fill="url(#paperFill)"/>
+    <path d="M726.431 305L810 388.569H758C740.327 388.569 726 374.242 726 356.569V305H726.431Z" fill="url(#paperFold)"/>
+  </g>
+  <rect x="598" y="420" width="64" height="16" rx="8" fill="#3A467A"/>
+  <rect x="598" y="458" width="144" height="16" rx="8" fill="#3A467A"/>
+  <rect x="598" y="500" width="104" height="16" rx="8" fill="#3A467A"/>
+  <path d="M598.5 553H624.948L648.624 623H625.134L620.674 607.452H602.274L597.814 623H574.824L598.5 553ZM611.274 573.22L605.988 592.628H616.56L611.274 573.22Z" fill="#16213D"/>
+  <path d="M652.534 553H674.322L684.51 587.756L694.592 553H716.38L699.31 623H669.604L652.534 553Z" fill="#16213D"/>
+  <path d="M720.588 553H745.97L755.31 583.844L764.65 553H790.032V623H769.488V577.242L756.714 623H743.906L731.132 577.242V623H720.588V553Z" fill="#16213D"/>
+  <path d="M801.388 553H824.378V623H801.388V553Z" fill="#16213D"/>
+</svg>
