@@ -17,6 +17,7 @@ public final class BatchStore: Sendable {
     }
 
     public func createBatch(_ batch: GenerationBatch) throws -> PersistedBatch {
+        try ensureRootDirectoryExists()
         let batchDirectory = rootDirectory.appendingPathComponent(batch.id, isDirectory: true)
         try FileManager.default.createDirectory(at: batchDirectory, withIntermediateDirectories: true)
         return try writeBatch(batch, into: batchDirectory)
@@ -135,6 +136,7 @@ public final class BatchStore: Sendable {
             return persisted
         }
 
+        try ensureRootDirectoryExists()
         let destinationDirectory = rootDirectory.appendingPathComponent(trimmedID, isDirectory: true)
         guard !FileManager.default.fileExists(atPath: destinationDirectory.path) else {
             throw BatchStoreError.batchAlreadyExists
@@ -201,6 +203,7 @@ public final class BatchStore: Sendable {
         guard FileManager.default.fileExists(atPath: sourceDirectory.appendingPathComponent("batch.json").path) else {
             throw BatchStoreError.invalidBatchDirectory
         }
+        try ensureRootDirectoryExists()
         let destinationURL = uniqueImportedDirectoryName(for: sourceDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: sourceDirectory, to: destinationURL)
         try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
@@ -231,6 +234,7 @@ public final class BatchStore: Sendable {
             throw BatchStoreError.invalidBatchDirectory
         }
 
+        try ensureRootDirectoryExists()
         let destinationURL = uniqueImportedDirectoryName(for: batchDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: batchDirectory, to: destinationURL)
         try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
@@ -301,6 +305,10 @@ public final class BatchStore: Sendable {
             }
             index += 1
         }
+    }
+
+    private func ensureRootDirectoryExists() throws {
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
     }
 
     private func rewriteImportedBatchID(at batchDirectory: URL, to batchID: String) throws {

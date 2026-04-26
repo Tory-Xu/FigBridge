@@ -8,7 +8,6 @@ struct BatchZipImportTests {
         defer { sandbox.cleanup() }
 
         let store = BatchStore(rootDirectory: sandbox.root.appendingPathComponent("store"))
-        try FileManager.default.createDirectory(at: store.rootDirectory, withIntermediateDirectories: true)
 
         let sourceRoot = sandbox.root.appendingPathComponent("source")
         let batchDirectory = sourceRoot.appendingPathComponent("batch-one")
@@ -43,6 +42,7 @@ struct BatchZipImportTests {
 
         #expect(imported.lastPathComponent == "batch-one")
         #expect(importedAgain.lastPathComponent == "batch-one(2)")
+        #expect(FileManager.default.fileExists(atPath: store.rootDirectory.path))
         #expect(FileManager.default.fileExists(atPath: imported.appendingPathComponent("batch.json").path))
 
         let importedAgainBatch = try #require(try store.loadBatch(id: "batch-one(2)"))
