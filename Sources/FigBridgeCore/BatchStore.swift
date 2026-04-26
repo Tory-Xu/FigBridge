@@ -203,6 +203,7 @@ public final class BatchStore: Sendable {
         }
         let destinationURL = uniqueImportedDirectoryName(for: sourceDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: sourceDirectory, to: destinationURL)
+        try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
         return destinationURL
     }
 
@@ -230,9 +231,9 @@ public final class BatchStore: Sendable {
             throw BatchStoreError.invalidBatchDirectory
         }
 
-        let destinationName = preferredImportedName(for: batchDirectory.lastPathComponent)
-        let destinationURL = uniqueImportedDirectoryName(for: destinationName, appendImportedSuffix: false)
+        let destinationURL = uniqueImportedDirectoryName(for: batchDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: batchDirectory, to: destinationURL)
+        try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
         return destinationURL
     }
 
@@ -267,24 +268,15 @@ public final class BatchStore: Sendable {
         return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    private func preferredImportedName(for baseName: String) -> String {
+    private func uniqueImportedDirectoryName(for baseName: String) -> URL {
         let primaryCandidate = rootDirectory.appendingPathComponent(baseName, isDirectory: true)
-        if !FileManager.default.fileExists(atPath: primaryCandidate.path) {
-            return baseName
-        }
-        return "\(baseName)-imported"
-    }
-
-    private func uniqueImportedDirectoryName(for baseName: String, appendImportedSuffix: Bool = true) -> URL {
-        let firstName = appendImportedSuffix ? "\(baseName)-imported" : baseName
-        let firstCandidate = rootDirectory.appendingPathComponent(firstName, isDirectory: true)
-        guard FileManager.default.fileExists(atPath: firstCandidate.path) else {
-            return firstCandidate
+        guard FileManager.default.fileExists(atPath: primaryCandidate.path) else {
+            return primaryCandidate
         }
 
         var index = 2
         while true {
-            let candidate = rootDirectory.appendingPathComponent("\(firstName)-\(index)", isDirectory: true)
+            let candidate = rootDirectory.appendingPathComponent("\(baseName)(\(index))", isDirectory: true)
             if !FileManager.default.fileExists(atPath: candidate.path) {
                 return candidate
             }
@@ -309,6 +301,23 @@ public final class BatchStore: Sendable {
             }
             index += 1
         }
+    }
+
+    private func rewriteImportedBatchID(at batchDirectory: URL, to batchID: String) throws {
+        let persisted = try loadBatch(at: batchDirectory)
+        let updatedBatch = GenerationBatch(
+            id: batchID,
+            createdAt: persisted.summary.createdAt,
+            agent: persisted.summary.agent,
+            promptSnapshot: persisted.summary.promptSnapshot,
+            sourceInputText: persisted.summary.sourceInputText,
+            outputDirectory: persisted.summary.outputDirectory,
+            mode: persisted.summary.mode,
+            parallelism: persisted.summary.parallelism,
+            callStrategy: persisted.summary.callStrategy,
+            items: persisted.summary.items
+        )
+        _ = try writeBatch(updatedBatch, into: batchDirectory)
     }
 
     private func writeBatch(_ batch: GenerationBatch, into batchDirectory: URL) throws -> PersistedBatch {

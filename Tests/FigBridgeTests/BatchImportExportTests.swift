@@ -37,7 +37,13 @@ struct BatchImportExportTests {
         let importedURL = try store.importBatchDirectory(from: persisted.batchDirectory)
         let importedAgainURL = try store.importBatchDirectory(from: persisted.batchDirectory)
 
-        #expect(importedURL.lastPathComponent == "batch-1-imported")
-        #expect(importedAgainURL.lastPathComponent == "batch-1-imported-2")
+        #expect(importedURL.lastPathComponent == "batch-1(2)")
+        #expect(importedAgainURL.lastPathComponent == "batch-1(3)")
+
+        let importedBatch = try #require(try store.loadBatch(id: "batch-1(2)"))
+        #expect(importedBatch.summary.id == "batch-1(2)")
+
+        let importedBatchJSON = try String(contentsOf: importedURL.appendingPathComponent("batch.json"), encoding: .utf8)
+        #expect(importedBatchJSON.contains("\"id\" : \"batch-1(2)\""))
     }
 }
