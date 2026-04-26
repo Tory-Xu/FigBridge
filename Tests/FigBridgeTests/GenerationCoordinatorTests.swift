@@ -216,6 +216,69 @@ struct GenerationCoordinatorTests {
         #expect(failedCount == 1)
         #expect(batch.summary.items.first(where: { $0.fileKey == "FILE2" })?.errorMessage?.contains("缺少") == true)
     }
+
+    @Test func emitsStreamingEventsForSingleItemRuns() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let batchStore = BatchStore(rootDirectory: sandbox.root)
+        let runner = EventMockAgentRunner(mode: .single)
+        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: runner)
+        let item = FigmaLinkItem(rawInputLine: "one", title: "one", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        let recorder = AgentEventRecorder()
+
+        _ = try await coordinator.generate(
+            agent: .codex,
+            promptTemplate: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root,
+            mode: .sequential,
+            parallelism: 1,
+            callStrategy: .singlePerLink,
+            items: [item],
+            itemEvent: { _, event in
+                await recorder.append(event, for: item.id)
+            }
+        )
+        let events = try #require(await recorder.events(for: item.id))
+
+        #expect(events.contains { if case .started(_, _, false) = $0 { return true } else { return false } })
+        #expect(events.contains { if case .stdout(let text) = $0 { return text.contains("progress-1") } else { return false } })
+        #expect(events.contains { if case .stderr(let text) = $0 { return text.contains("warn-1") } else { return false } })
+        #expect(events.contains { if case .finished(0) = $0 { return true } else { return false } })
+    }
+
+    @Test func sharesStreamingEventsAcrossItemsForSingleBatchCall() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let batchStore = BatchStore(rootDirectory: sandbox.root)
+        let runner = EventMockAgentRunner(mode: .batch)
+        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: runner)
+        let first = FigmaLinkItem(rawInputLine: "one", title: "one", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        let second = FigmaLinkItem(rawInputLine: "two", title: "two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4")
+        let recorder = AgentEventRecorder()
+
+        _ = try await coordinator.generate(
+            agent: .codex,
+            promptTemplate: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root,
+            mode: .sequential,
+            parallelism: 1,
+            callStrategy: .singleForBatch,
+            items: [first, second],
+            itemEvent: { itemID, event in
+                await recorder.append(event, for: itemID)
+            }
+        )
+
+        let firstEvents = try #require(await recorder.events(for: first.id))
+        let secondEvents = try #require(await recorder.events(for: second.id))
+        #expect(firstEvents == secondEvents)
+        #expect(firstEvents.contains { if case .started(_, _, true) = $0 { return true } else { return false } })
+        #expect(firstEvents.contains { if case .stdout(let text) = $0 { return text.contains("shared-progress") } else { return false } })
+    }
 }
 
 private actor MockAgentRunner: AgentRunning {
@@ -226,13 +289,13 @@ private actor MockAgentRunner: AgentRunning {
         self.outputs = outputs
     }
 
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
         let key = "\(item.fileKey)|\(item.nodeId)"
         calls.append(key)
         guard let result = outputs[key] else {
             throw MockFailure()
         }
-        return AgentRunResult(output: try result.get(), executablePath: "/mock/\(provider.rawValue)", arguments: [])
+        return AgentRunResult(output: try result.get(), executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 
     func recordedCalls() -> [String] {
@@ -248,7 +311,7 @@ private actor RetryingMockAgentRunner: AgentRunning {
     private var attempts: [String: Int] = [:]
     private var calls: [String] = []
 
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
         let key = "\(item.fileKey)|\(item.nodeId)"
         calls.append(key)
         let nextAttempt = (attempts[key] ?? 0) + 1
@@ -256,7 +319,7 @@ private actor RetryingMockAgentRunner: AgentRunning {
         if nextAttempt == 1 {
             throw MockFailure()
         }
-        return AgentRunResult(output: "name: retried", executablePath: "/mock/\(provider.rawValue)", arguments: [])
+        return AgentRunResult(output: "name: retried", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 
     func recordedCalls() -> [String] {
@@ -272,12 +335,75 @@ private actor MockBatchAgentRunner: AgentRunning {
         self.output = output
     }
 
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
         calls.append("\(item.fileKey)|\(item.nodeId)")
-        return AgentRunResult(output: output, executablePath: "/mock/\(provider.rawValue)", arguments: [])
+        return AgentRunResult(output: output, executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 
     func recordedCalls() -> [String] {
         calls
+    }
+}
+
+private actor AgentEventRecorder {
+    private var values: [UUID: [AgentRunEvent]] = [:]
+
+    func append(_ event: AgentRunEvent, for itemID: UUID) {
+        values[itemID, default: []].append(event)
+    }
+
+    func events(for itemID: UUID) -> [AgentRunEvent]? {
+        values[itemID]
+    }
+}
+
+private actor EventMockAgentRunner: AgentRunning {
+    enum Mode {
+        case single
+        case batch
+    }
+
+    let mode: Mode
+
+    init(mode: Mode) {
+        self.mode = mode
+    }
+
+    func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)?
+    ) async throws -> AgentRunResult {
+        switch mode {
+        case .single:
+            if let eventHandler {
+                await eventHandler(.started(executablePath: "/mock/\(provider.rawValue)", arguments: [], isSharedLog: false))
+                await eventHandler(.stdout("progress-1\n"))
+                await eventHandler(.stderr("warn-1\n"))
+                await eventHandler(.finished(exitCode: 0))
+            }
+            return AgentRunResult(output: "name: first", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "warn-1")
+        case .batch:
+            if let eventHandler {
+                await eventHandler(.started(executablePath: "/mock/\(provider.rawValue)", arguments: [], isSharedLog: true))
+                await eventHandler(.stdout("shared-progress\n"))
+                await eventHandler(.finished(exitCode: 0))
+            }
+            return AgentRunResult(
+                output: """
+                <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>
+                name: first
+                <<<FIGBRIDGE_YAML_END>>>
+                <<<FIGBRIDGE_YAML_START fileKey=FILE2 nodeId=3:4>>>
+                name: second
+                <<<FIGBRIDGE_YAML_END>>>
+                """,
+                executablePath: "/mock/\(provider.rawValue)",
+                arguments: [],
+                exitCode: 0,
+                stderr: ""
+            )
+        }
     }
 }

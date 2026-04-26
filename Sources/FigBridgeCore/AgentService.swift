@@ -21,11 +21,15 @@ public struct AgentRunResult: Sendable {
     public let output: String
     public let executablePath: String
     public let arguments: [String]
+    public let exitCode: Int32
+    public let stderr: String
 
-    public init(output: String, executablePath: String, arguments: [String]) {
+    public init(output: String, executablePath: String, arguments: [String], exitCode: Int32 = 0, stderr: String = "") {
         self.output = output
         self.executablePath = executablePath
         self.arguments = arguments
+        self.exitCode = exitCode
+        self.stderr = stderr
     }
 }
 
@@ -62,7 +66,11 @@ public struct AgentService: Sendable {
         try await runDetailed(provider: provider, prompt: prompt).output
     }
 
-    public func runDetailed(provider: AgentProvider, prompt: String) async throws -> AgentRunResult {
+    public func runDetailed(
+        provider: AgentProvider,
+        prompt: String,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil
+    ) async throws -> AgentRunResult {
         let arguments: [String]
         switch provider {
         case .claude:
@@ -75,8 +83,29 @@ public struct AgentService: Sendable {
             throw AgentServiceError.executableNotFound(provider.rawValue)
         }
 
-        let result = try await shellClient.run(executable: executable, arguments: arguments)
+        if let eventHandler {
+            await eventHandler(.started(executablePath: executable.path, arguments: arguments, isSharedLog: false))
+        }
+
+        let result = try await shellClient.runStreaming(executable: executable, arguments: arguments) { event in
+            guard let eventHandler else {
+                return
+            }
+            switch event {
+            case .started:
+                break
+            case .stdout(let text):
+                await eventHandler(.stdout(text))
+            case .stderr(let text):
+                await eventHandler(.stderr(text))
+            case .finished(let status):
+                await eventHandler(.finished(exitCode: status))
+            }
+        }
         guard result.status == 0 else {
+            if let eventHandler {
+                await eventHandler(.failed(message: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
             throw AgentServiceError.executionFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
@@ -84,6 +113,6 @@ public struct AgentService: Sendable {
         guard !output.isEmpty else {
             throw AgentServiceError.emptyOutput
         }
-        return AgentRunResult(output: output, executablePath: executable.path, arguments: arguments)
+        return AgentRunResult(output: output, executablePath: executable.path, arguments: arguments, exitCode: result.status, stderr: result.stderr)
     }
 }

@@ -67,6 +67,22 @@ public enum GenerationStatus: String, Codable, Sendable {
     case cancelled
 }
 
+public enum AgentRunLogStatus: String, Codable, Sendable {
+    case running
+    case finished
+    case failed
+    case cancelled
+}
+
+public enum AgentRunEvent: Equatable, Sendable {
+    case started(executablePath: String, arguments: [String], isSharedLog: Bool)
+    case stdout(String)
+    case stderr(String)
+    case finished(exitCode: Int32)
+    case failed(message: String)
+    case cancelled
+}
+
 public struct AppSettings: Codable, Equatable, Sendable {
     public var selectedAgentID: String?
     public var promptTemplate: String
@@ -235,6 +251,51 @@ public struct FigmaLinkItem: Codable, Equatable, Identifiable, Sendable {
         self.nodeName = nodeName
         self.agentOutputPath = agentOutputPath
         self.logSummary = logSummary
+    }
+}
+
+public struct GenerationRunLog: Equatable, Sendable, Identifiable {
+    public let id: String
+    public var runID: String { id }
+    public var isShared: Bool
+    public var provider: AgentProvider
+    public var executablePath: String?
+    public var arguments: [String]
+    public var startedAt: Date?
+    public var endedAt: Date?
+    public var exitCode: Int32?
+    public var status: AgentRunLogStatus
+    public var stdout: String
+    public var stderr: String
+
+    public var combinedConsoleText: String {
+        stdout + stderr
+    }
+
+    public init(
+        id: String,
+        isShared: Bool,
+        provider: AgentProvider,
+        executablePath: String? = nil,
+        arguments: [String] = [],
+        startedAt: Date? = nil,
+        endedAt: Date? = nil,
+        exitCode: Int32? = nil,
+        status: AgentRunLogStatus = .running,
+        stdout: String = "",
+        stderr: String = ""
+    ) {
+        self.id = id
+        self.isShared = isShared
+        self.provider = provider
+        self.executablePath = executablePath
+        self.arguments = arguments
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.exitCode = exitCode
+        self.status = status
+        self.stdout = stdout
+        self.stderr = stderr
     }
 }
 

@@ -41,8 +41,8 @@ struct GenerationCancellationTests {
 }
 
 private actor SlowMockAgentRunner: AgentRunning {
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
         try await Task.sleep(for: .seconds(2))
-        return AgentRunResult(output: "name: slow", executablePath: "/mock/\(provider.rawValue)", arguments: [])
+        return AgentRunResult(output: "name: slow", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 }

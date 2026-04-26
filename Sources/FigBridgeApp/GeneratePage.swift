@@ -120,6 +120,44 @@ struct GeneratePage: View {
                         Text(errorMessage)
                             .foregroundStyle(.red)
                     }
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("运行过程")
+                            .font(.headline)
+                        if let runLog = viewModel.selectedRunLog {
+                            if runLog.isShared {
+                                Text("批量单次调用共享日志")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text("状态: \(runLog.status.rawValue)")
+                                .font(.caption)
+                            if let executablePath = runLog.executablePath {
+                                Text("执行文件: \(executablePath)")
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
+                            if !runLog.arguments.isEmpty {
+                                Text("参数: \(runLog.arguments.joined(separator: " "))")
+                                    .font(.caption2)
+                                    .textSelection(.enabled)
+                            }
+                            if let exitCode = runLog.exitCode {
+                                Text("退出码: \(exitCode)")
+                                    .font(.caption2)
+                            }
+                            ScrollView {
+                                Text(runLog.combinedConsoleText.isEmpty ? "暂无日志输出" : runLog.combinedConsoleText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .font(.body.monospaced())
+                                    .textSelection(.enabled)
+                            }
+                            .frame(minHeight: 120, maxHeight: 220)
+                        } else {
+                            Text("暂无运行日志")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     if let yamlPath = item.generatedYAMLPath {
                         Text("YAML: \(yamlPath)")
                             .font(.caption)

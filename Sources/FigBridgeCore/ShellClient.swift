@@ -12,6 +12,13 @@ public struct ShellResult: Sendable {
     }
 }
 
+public enum ShellEvent: Equatable, Sendable {
+    case started(pid: Int32)
+    case stdout(String)
+    case stderr(String)
+    case finished(status: Int32)
+}
+
 public struct ShellClient: Sendable {
     public let pathLookupDirectories: [URL]
     public let environment: [String: String]
@@ -32,6 +39,14 @@ public struct ShellClient: Sendable {
     }
 
     public func run(executable: URL, arguments: [String]) async throws -> ShellResult {
+        try await runStreaming(executable: executable, arguments: arguments, onEvent: nil)
+    }
+
+    public func runStreaming(
+        executable: URL,
+        arguments: [String],
+        onEvent: (@Sendable (ShellEvent) async -> Void)?
+    ) async throws -> ShellResult {
         try await withCheckedThrowingContinuation { continuation in
             let task = Process()
             task.executableURL = executable
@@ -42,13 +57,64 @@ public struct ShellClient: Sendable {
             let stderrPipe = Pipe()
             task.standardOutput = stdoutPipe
             task.standardError = stderrPipe
+            let stdoutCollector = StreamCollector()
+            let stderrCollector = StreamCollector()
+
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    return
+                }
+                stdoutCollector.append(data: data)
+                if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
+                    Task {
+                        await onEvent(.stdout(text))
+                    }
+                }
+            }
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    return
+                }
+                stderrCollector.append(data: data)
+                if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
+                    Task {
+                        await onEvent(.stderr(text))
+                    }
+                }
+            }
 
             do {
                 try task.run()
+                if let onEvent {
+                    Task {
+                        await onEvent(.started(pid: task.processIdentifier))
+                    }
+                }
                 task.terminationHandler = { process in
-                    let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdout, stderr: stderr))
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    let stdoutTail = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrTail = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    stdoutCollector.append(data: stdoutTail)
+                    stderrCollector.append(data: stderrTail)
+                    if let text = String(data: stdoutTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                        Task {
+                            await onEvent(.stdout(text))
+                        }
+                    }
+                    if let text = String(data: stderrTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                        Task {
+                            await onEvent(.stderr(text))
+                        }
+                    }
+                    if let onEvent {
+                        Task {
+                            await onEvent(.finished(status: process.terminationStatus))
+                        }
+                    }
+                    continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdoutCollector.fullText(), stderr: stderrCollector.fullText()))
                 }
             } catch {
                 continuation.resume(throwing: error)
@@ -116,5 +182,25 @@ public struct ShellClient: Sendable {
             merged["PATH"] = path
         }
         return merged
+    }
+}
+
+private final class StreamCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    func append(data: Data) {
+        guard !data.isEmpty else {
+            return
+        }
+        lock.lock()
+        buffer.append(data)
+        lock.unlock()
+    }
+
+    func fullText() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(data: buffer, encoding: .utf8) ?? ""
     }
 }

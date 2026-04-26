@@ -146,7 +146,8 @@ struct GenerateViewModelTests {
         await harness.viewModel.generate()
 
         #expect(harness.viewModel.currentBatchID == initialBatchID)
-        #expect(await harness.runner.recordedCalls() == ["FILE1|1:2", "FILE2|3:4"])
+        let runner = try #require(harness.recordedRunner)
+        #expect(await runner.recordedCalls() == ["FILE1|1:2", "FILE2|3:4"])
         #expect(harness.viewModel.processedItems.count == 2)
 
         harness.viewModel.resetWorkspace()
@@ -400,12 +401,54 @@ struct GenerateViewModelTests {
         #expect(restoredHarness.viewModel.selectedAgentID == AgentProvider.claude.id)
         #expect(settings.selectedAgentID == AgentProvider.codex.id)
     }
+
+    @Test func generateCapturesRealtimeConsoleLogForSelectedItem() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: StreamingRecordingAgentRunner(mode: .single))
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.items = [item]
+        harness.viewModel.selectedItemID = item.id
+
+        await harness.viewModel.generate()
+
+        let log = try #require(harness.viewModel.selectedRunLog)
+        #expect(log.isShared == false)
+        #expect(log.combinedConsoleText.contains("stdout-line"))
+        #expect(log.combinedConsoleText.contains("stderr-line"))
+        #expect(log.exitCode == 0)
+    }
+
+    @Test func singleBatchStrategySharesRealtimeConsoleLogAcrossItems() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: StreamingRecordingAgentRunner(mode: .batch))
+        harness.viewModel.callStrategy = .singleForBatch
+        let first = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        let second = FigmaLinkItem(rawInputLine: "two", title: "Two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4")
+        harness.viewModel.items = [first, second]
+
+        harness.viewModel.selectedItemID = first.id
+        await harness.viewModel.generate()
+        let firstLog = try #require(harness.viewModel.selectedRunLog)
+
+        harness.viewModel.selectedItemID = second.id
+        let secondLog = try #require(harness.viewModel.selectedRunLog)
+
+        #expect(firstLog.runID == secondLog.runID)
+        #expect(firstLog.isShared)
+        #expect(secondLog.isShared)
+        #expect(secondLog.combinedConsoleText.contains("shared-batch-line"))
+    }
 }
 
 @MainActor
 private struct GenerateViewModelHarness {
     let viewModel: GenerateViewModel
-    let runner: RecordingAgentRunner
+    let runner: any AgentRunning
+    let recordedRunner: RecordingAgentRunner?
     let batchStore: BatchStore
     let draftStore: GenerateWorkspaceDraftStore
     let settingsStore: SettingsStore
@@ -413,7 +456,8 @@ private struct GenerateViewModelHarness {
     init(
         rootDirectory: URL,
         figmaTransport: (any FigmaHTTPTransport)? = nil,
-        figmaToken: String = ""
+        figmaToken: String = "",
+        runner: (any AgentRunning)? = nil
     ) throws {
         let settingsStore = SettingsStore(fileURL: rootDirectory.appendingPathComponent("settings.json"))
         try settingsStore.save(AppSettings(
@@ -437,8 +481,8 @@ private struct GenerateViewModelHarness {
         settingsViewModel.settings = try settingsStore.load()
         let batchStore = BatchStore(rootDirectory: rootDirectory)
         let draftStore = GenerateWorkspaceDraftStore(fileURL: rootDirectory.appendingPathComponent("generate-workspace-draft.json"))
-        let runner = RecordingAgentRunner()
-        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: runner)
+        let resolvedRunner = runner ?? RecordingAgentRunner()
+        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: resolvedRunner)
         let viewModel = GenerateViewModel(
             settingsViewModel: settingsViewModel,
             batchStore: batchStore,
@@ -448,7 +492,8 @@ private struct GenerateViewModelHarness {
         )
 
         self.viewModel = viewModel
-        self.runner = runner
+        self.runner = resolvedRunner
+        self.recordedRunner = resolvedRunner as? RecordingAgentRunner
         self.batchStore = batchStore
         self.draftStore = draftStore
         self.settingsStore = settingsStore
@@ -552,7 +597,12 @@ private actor FlakyFileImagesTransport: FigmaHTTPTransport {
 private actor RecordingAgentRunner: AgentRunning {
     private var calls: [String] = []
 
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+    func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil
+    ) async throws -> AgentRunResult {
         calls.append("\(item.fileKey)|\(item.nodeId)")
         if prompt.contains("待处理链接：") {
             return AgentRunResult(
@@ -565,14 +615,67 @@ private actor RecordingAgentRunner: AgentRunning {
                 <<<FIGBRIDGE_YAML_END>>>
                 """,
                 executablePath: "/mock/\(provider.rawValue)",
-                arguments: []
+                arguments: [],
+                exitCode: 0,
+                stderr: ""
             )
         }
-        return AgentRunResult(output: "name: \(item.nodeId)", executablePath: "/mock/\(provider.rawValue)", arguments: [])
+        return AgentRunResult(output: "name: \(item.nodeId)", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 
     func recordedCalls() -> [String] {
         calls
+    }
+}
+
+private actor StreamingRecordingAgentRunner: AgentRunning {
+    enum Mode {
+        case single
+        case batch
+    }
+
+    let mode: Mode
+
+    init(mode: Mode) {
+        self.mode = mode
+    }
+
+    func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)?
+    ) async throws -> AgentRunResult {
+        switch mode {
+        case .single:
+            if let eventHandler {
+                await eventHandler(.started(executablePath: "/mock/\(provider.rawValue)", arguments: [], isSharedLog: false))
+                await eventHandler(.stdout("stdout-line\n"))
+                await eventHandler(.stderr("stderr-line\n"))
+                await eventHandler(.finished(exitCode: 0))
+            }
+            return AgentRunResult(output: "name: \(item.nodeId)", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "stderr-line")
+        case .batch:
+            if let eventHandler {
+                await eventHandler(.started(executablePath: "/mock/\(provider.rawValue)", arguments: [], isSharedLog: true))
+                await eventHandler(.stdout("shared-batch-line\n"))
+                await eventHandler(.finished(exitCode: 0))
+            }
+            return AgentRunResult(
+                output: """
+                <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>
+                name: 1:2
+                <<<FIGBRIDGE_YAML_END>>>
+                <<<FIGBRIDGE_YAML_START fileKey=FILE2 nodeId=3:4>>>
+                name: 3:4
+                <<<FIGBRIDGE_YAML_END>>>
+                """,
+                executablePath: "/mock/\(provider.rawValue)",
+                arguments: [],
+                exitCode: 0,
+                stderr: ""
+            )
+        }
     }
 }
 
@@ -589,7 +692,8 @@ extension GenerateViewModelTests {
 
         await harness.viewModel.generate()
 
-        #expect(await harness.runner.recordedCalls() == ["FILE1|1:2"])
+        let runner = try #require(harness.recordedRunner)
+        #expect(await runner.recordedCalls() == ["FILE1|1:2"])
         #expect(harness.viewModel.items.allSatisfy { $0.generatedYAMLPath != nil })
     }
 }

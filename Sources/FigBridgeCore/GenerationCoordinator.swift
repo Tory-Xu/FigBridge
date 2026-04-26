@@ -1,12 +1,22 @@
 import Foundation
 
 public protocol AgentRunning: Sendable {
-    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult
+    func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)?
+    ) async throws -> AgentRunResult
 }
 
 extension AgentService: AgentRunning {
-    public func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
-        try await runDetailed(provider: provider, prompt: prompt)
+    public func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)?
+    ) async throws -> AgentRunResult {
+        try await runDetailed(provider: provider, prompt: prompt, eventHandler: eventHandler)
     }
 }
 
@@ -30,7 +40,8 @@ public struct GenerationCoordinator: Sendable {
         existingBatchID: String? = nil,
         items: [FigmaLinkItem],
         itemStarted: (@Sendable (FigmaLinkItem) async -> Void)? = nil,
-        progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)? = nil
+        progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)? = nil,
+        itemEvent: (@Sendable (UUID, AgentRunEvent) async -> Void)? = nil
     ) async throws -> PersistedBatch {
         let existingBatch = try existingBatchID.flatMap { try batchStore.loadBatch(id: $0) }
         let batchID = existingBatch?.summary.id ?? BatchNaming.makeBatchID()
@@ -44,12 +55,12 @@ public struct GenerationCoordinator: Sendable {
         case .singlePerLink:
             switch mode {
             case .sequential:
-                resolvedPendingItems = try await runSequential(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress)
+                resolvedPendingItems = try await runSequential(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress, itemEvent: itemEvent)
             case .parallel:
-                resolvedPendingItems = try await runParallel(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, itemStarted: itemStarted, progress: progress)
+                resolvedPendingItems = try await runParallel(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, itemStarted: itemStarted, progress: progress, itemEvent: itemEvent)
             }
         case .singleForBatch:
-            resolvedPendingItems = try await runBatchSingleCall(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress)
+            resolvedPendingItems = try await runBatchSingleCall(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress, itemEvent: itemEvent)
         }
 
         let resolvedMap = Dictionary(uniqueKeysWithValues: resolvedPendingItems.map { ($0.id, $0) })
@@ -84,11 +95,11 @@ public struct GenerationCoordinator: Sendable {
         )
     }
 
-    private func runSequential(items: [FigmaLinkItem], provider: AgentProvider, promptTemplate: String, batchDirectory: URL, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?, progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?) async throws -> [FigmaLinkItem] {
+    private func runSequential(items: [FigmaLinkItem], provider: AgentProvider, promptTemplate: String, batchDirectory: URL, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?, progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?, itemEvent: (@Sendable (UUID, AgentRunEvent) async -> Void)? = nil) async throws -> [FigmaLinkItem] {
         var resolved: [FigmaLinkItem] = []
         for (index, item) in items.enumerated() {
             try Task.checkCancellation()
-            let result = try await runSingle(item: item, index: index, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted)
+            let result = try await runSingle(item: item, index: index, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, itemEvent: itemEvent)
             resolved.append(result)
             if let progress {
                 await progress(index + 1, items.count, result)
@@ -97,7 +108,7 @@ public struct GenerationCoordinator: Sendable {
         return resolved
     }
 
-    private func runParallel(items: [FigmaLinkItem], provider: AgentProvider, promptTemplate: String, batchDirectory: URL, parallelism: Int, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?, progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?) async throws -> [FigmaLinkItem] {
+    private func runParallel(items: [FigmaLinkItem], provider: AgentProvider, promptTemplate: String, batchDirectory: URL, parallelism: Int, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?, progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?, itemEvent: (@Sendable (UUID, AgentRunEvent) async -> Void)?) async throws -> [FigmaLinkItem] {
         let limit = max(1, parallelism)
         var iterator = items.enumerated().makeIterator()
         var results = Array<FigmaLinkItem?>(repeating: nil, count: items.count)
@@ -109,7 +120,7 @@ public struct GenerationCoordinator: Sendable {
                     break
                 }
                 group.addTask {
-                    let resolved = try await runSingle(item: next.element, index: next.offset, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted)
+                    let resolved = try await runSingle(item: next.element, index: next.offset, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, itemEvent: itemEvent)
                     return (next.offset, resolved)
                 }
             }
@@ -123,7 +134,7 @@ public struct GenerationCoordinator: Sendable {
                 }
                 if let next = iterator.next() {
                     group.addTask {
-                        let resolved = try await runSingle(item: next.element, index: next.offset, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted)
+                        let resolved = try await runSingle(item: next.element, index: next.offset, provider: provider, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, itemEvent: itemEvent)
                         return (next.offset, resolved)
                     }
                 }
@@ -133,7 +144,7 @@ public struct GenerationCoordinator: Sendable {
         return results.compactMap { $0 }
     }
 
-    private func runSingle(item: FigmaLinkItem, index: Int, provider: AgentProvider, promptTemplate: String, batchDirectory: URL, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?) async throws -> FigmaLinkItem {
+    private func runSingle(item: FigmaLinkItem, index: Int, provider: AgentProvider, promptTemplate: String, batchDirectory: URL, itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?, itemEvent: (@Sendable (UUID, AgentRunEvent) async -> Void)?) async throws -> FigmaLinkItem {
         var resolvedItem = item
         resolvedItem.generationStatus = .running
         resolvedItem.logSummary = "执行中"
@@ -147,7 +158,11 @@ public struct GenerationCoordinator: Sendable {
         try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
 
         do {
-            let result = try await agentRunner.run(provider: provider, prompt: prompt, item: item)
+            let result = try await agentRunner.run(provider: provider, prompt: prompt, item: item) { event in
+                if let itemEvent {
+                    await itemEvent(item.id, event)
+                }
+            }
             let yamlURL = yamlDirectory.appendingPathComponent("figma-node-\(item.nodeId.replacingOccurrences(of: ":", with: "-")).yaml")
             let rawOutputURL = yamlDirectory.appendingPathComponent("agent-output.txt")
             try result.output.write(to: rawOutputURL, atomically: true, encoding: .utf8)
@@ -163,6 +178,9 @@ public struct GenerationCoordinator: Sendable {
             resolvedItem.agentOutputPath = nil
             resolvedItem.errorMessage = error.localizedDescription
             resolvedItem.logSummary = "执行失败"
+            if let itemEvent {
+                await itemEvent(item.id, .failed(message: error.localizedDescription))
+            }
         }
 
         return resolvedItem
@@ -174,7 +192,8 @@ public struct GenerationCoordinator: Sendable {
         promptTemplate: String,
         batchDirectory: URL,
         itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?,
-        progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?
+        progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?,
+        itemEvent: (@Sendable (UUID, AgentRunEvent) async -> Void)?
     ) async throws -> [FigmaLinkItem] {
         guard !items.isEmpty else {
             return []
@@ -196,7 +215,13 @@ public struct GenerationCoordinator: Sendable {
         let result: AgentRunResult
         let rawOutputURL = makeBatchRawOutputURL(for: callItem, batchDirectory: batchDirectory)
         do {
-            result = try await agentRunner.run(provider: provider, prompt: prompt, item: callItem)
+            result = try await agentRunner.run(provider: provider, prompt: prompt, item: callItem) { event in
+                if let itemEvent {
+                    for item in items {
+                        await itemEvent(item.id, event)
+                    }
+                }
+            }
             try FileManager.default.createDirectory(at: rawOutputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try result.output.write(to: rawOutputURL, atomically: true, encoding: .utf8)
         } catch {
@@ -207,6 +232,9 @@ public struct GenerationCoordinator: Sendable {
                 resolvedItems[index].agentOutputPath = nil
                 resolvedItems[index].errorMessage = error.localizedDescription
                 resolvedItems[index].logSummary = "执行失败"
+                if let itemEvent {
+                    await itemEvent(resolvedItems[index].id, .failed(message: error.localizedDescription))
+                }
                 completed += 1
                 if let progress {
                     await progress(completed, resolvedItems.count, resolvedItems[index])

@@ -116,4 +116,61 @@ struct AgentServiceTests {
 
         #expect(output == "hello with node")
     }
+
+    @Test func streamsShellOutputEventsBeforeCompletion() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let scriptPath = sandbox.root.appendingPathComponent("stream-agent")
+        try makeExecutable(
+            at: scriptPath,
+            body: """
+            #!/bin/sh
+            printf 'out-1\\n'
+            printf 'err-1\\n' >&2
+            sleep 0.1
+            printf 'out-2\\n'
+            printf 'err-2\\n' >&2
+            """
+        )
+
+        let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
+        let recorder = ShellEventRecorder()
+
+        let result = try await shell.runStreaming(executable: scriptPath, arguments: []) { event in
+            await recorder.append(event)
+        }
+        let events = await recorder.events()
+
+        #expect(result.status == 0)
+        #expect(result.stdout.contains("out-1"))
+        #expect(result.stdout.contains("out-2"))
+        #expect(result.stderr.contains("err-1"))
+        #expect(result.stderr.contains("err-2"))
+        #expect(events.contains { event in
+            if case .stdout(let text) = event { return text.contains("out-1") }
+            return false
+        })
+        #expect(events.contains { event in
+            if case .stderr(let text) = event { return text.contains("err-1") }
+            return false
+        })
+        #expect(events.contains { event in
+            if case .started(let pid) = event { return pid > 0 }
+            return false
+        })
+        #expect(events.contains(.finished(status: 0)))
+    }
+}
+
+private actor ShellEventRecorder {
+    private var values: [ShellEvent] = []
+
+    func append(_ event: ShellEvent) {
+        values.append(event)
+    }
+
+    func events() -> [ShellEvent] {
+        values
+    }
 }

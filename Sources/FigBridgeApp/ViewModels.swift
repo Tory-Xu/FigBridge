@@ -137,6 +137,7 @@ final class GenerateViewModel: ObservableObject {
                 return
             }
             loadSelectedYAML()
+            refreshSelectedRunLog()
             persistDraftIfNeeded()
         }
     }
@@ -152,6 +153,7 @@ final class GenerateViewModel: ObservableObject {
         didSet { persistDraftIfNeeded() }
     }
     @Published var selectedYAMLText: String?
+    @Published var selectedRunLog: GenerationRunLog?
     @Published var renamingItemID: UUID?
     @Published var renamingTitle: String = ""
     @Published var renamingOriginalTitle: String = ""
@@ -166,6 +168,8 @@ final class GenerateViewModel: ObservableObject {
     private var generationTask: Task<PersistedBatch, Error>?
     private var isRestoringWorkspace = false
     private var resourceLoadTasks: [UUID: Task<Void, Never>] = [:]
+    private var runLogsByItemID: [UUID: GenerationRunLog] = [:]
+    private var sharedRunLogIDByBatchKey: [String: String] = [:]
 
     init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService, draftStore: GenerateWorkspaceDraftStore) {
         self.settingsViewModel = settingsViewModel
@@ -254,6 +258,8 @@ final class GenerateViewModel: ObservableObject {
         currentBatchID = nil
         currentBatchDirectory = nil
         selectedYAMLText = nil
+        runLogsByItemID.removeAll()
+        selectedRunLog = nil
         isRestoringWorkspace = false
         persistDraft(force: true)
     }
@@ -315,6 +321,14 @@ final class GenerateViewModel: ObservableObject {
                             self.items[index] = item
                         }
                     }
+                },
+                itemEvent: { [weak self] itemID, event in
+                    await MainActor.run {
+                        guard let self else {
+                            return
+                        }
+                        self.applyRunEvent(event, for: itemID, provider: provider)
+                    }
                 }
             )
         }
@@ -326,6 +340,7 @@ final class GenerateViewModel: ObservableObject {
             currentBatchID = persisted.summary.id
             currentBatchDirectory = persisted.batchDirectory.path
             loadSelectedYAML()
+            refreshSelectedRunLog()
             validationMessage = "生成完成"
             persistDraftIfNeeded()
         } catch is CancellationError {
@@ -361,7 +376,9 @@ final class GenerateViewModel: ObservableObject {
             let nextSelection = items.indices.contains(index) ? items[index].id : items.last?.id
             selectedItemID = nextSelection
         }
+        runLogsByItemID.removeValue(forKey: id)
         loadSelectedYAML()
+        refreshSelectedRunLog()
         persistDraftIfNeeded()
     }
 
@@ -444,9 +461,11 @@ final class GenerateViewModel: ObservableObject {
     private func loadSelectedYAML() {
         guard let yamlPath = selectedItem?.generatedYAMLPath else {
             selectedYAMLText = nil
+            refreshSelectedRunLog()
             return
         }
         selectedYAMLText = try? String(contentsOfFile: yamlPath, encoding: .utf8)
+        refreshSelectedRunLog()
     }
 
     func exportPreviewImage() {
@@ -514,6 +533,8 @@ final class GenerateViewModel: ObservableObject {
         progressText = ""
         completedCount = 0
         selectedYAMLText = nil
+        runLogsByItemID.removeAll()
+        selectedRunLog = nil
         renamingItemID = nil
         renamingTitle = ""
         renamingOriginalTitle = ""
@@ -521,6 +542,60 @@ final class GenerateViewModel: ObservableObject {
         loadSelectedYAML()
         persistDraftIfNeeded()
         preloadResourcesForAllItemsIfNeeded()
+    }
+
+    private func refreshSelectedRunLog() {
+        guard let selectedItemID else {
+            selectedRunLog = nil
+            return
+        }
+        selectedRunLog = runLogsByItemID[selectedItemID]
+    }
+
+    private func applyRunEvent(_ event: AgentRunEvent, for itemID: UUID, provider: AgentProvider) {
+        let batchKey = currentBatchID ?? "workspace"
+        let existingLog = runLogsByItemID[itemID]
+        var log = existingLog ?? GenerationRunLog(id: UUID().uuidString.lowercased(), isShared: false, provider: provider)
+        switch event {
+        case .started(let executablePath, let arguments, let isSharedLog):
+            if isSharedLog {
+                let sharedID = sharedRunLogIDByBatchKey[batchKey] ?? log.id
+                sharedRunLogIDByBatchKey[batchKey] = sharedID
+                if let sharedLog = runLogsByItemID.values.first(where: { $0.id == sharedID }) {
+                    log = sharedLog
+                } else {
+                    log = GenerationRunLog(id: sharedID, isShared: true, provider: provider)
+                }
+            }
+            log.isShared = isSharedLog
+            log.executablePath = executablePath
+            log.arguments = arguments
+            log.startedAt = log.startedAt ?? Date()
+            log.status = .running
+        case .stdout(let text):
+            log.stdout += text
+        case .stderr(let text):
+            log.stderr += text
+        case .finished(let exitCode):
+            log.exitCode = exitCode
+            log.endedAt = Date()
+            log.status = exitCode == 0 ? .finished : .failed
+        case .failed:
+            log.endedAt = Date()
+            log.status = .failed
+        case .cancelled:
+            log.endedAt = Date()
+            log.status = .cancelled
+        }
+        runLogsByItemID[itemID] = log
+        if log.isShared {
+            for otherItemID in pendingItems.map(\.id) {
+                runLogsByItemID[otherItemID] = log
+            }
+        }
+        if selectedItemID == itemID {
+            selectedRunLog = log
+        }
     }
 
     private func applyDefaultWorkspaceSettings() {
