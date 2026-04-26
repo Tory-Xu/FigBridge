@@ -28,6 +28,8 @@ struct SettingsStoreTests {
         let loaded = try store.load()
 
         #expect(loaded == AppSettings.defaultValue)
+        #expect(loaded.defaultExportFormat == .svg)
+        #expect(loaded.defaultAgentCallStrategy == .singleForBatch)
     }
 
     @Test func clearsUnavailableSelectedAgent() throws {

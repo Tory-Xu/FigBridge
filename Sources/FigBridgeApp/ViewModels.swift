@@ -5,15 +5,35 @@ import FigBridgeCore
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
-    @Published var settings: AppSettings = .defaultValue
+    @Published var settings: AppSettings = .defaultValue {
+        didSet {
+            guard oldValue != settings else {
+                return
+            }
+            scheduleAutosave()
+        }
+    }
     @Published var availableAgents: [AgentDescriptor] = []
     @Published var message: String = ""
     @Published var isError: Bool = false
+    @Published var isShowingTokenHelp: Bool = false
+    @Published var isTestingToken: Bool = false
+    @Published var toastMessage: String = ""
+    @Published var isToastError: Bool = false
+
+    static let tokenHelpSteps: [String] = [
+        "打开 Figma，进入 Settings。",
+        "进入 Personal access tokens。",
+        "创建新 Token 并复制到这里。",
+    ]
+    static let tokenHelpURL = URL(string: "https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens")!
 
     private let settingsStore: SettingsStore
     private let agentService: AgentService
     private let figmaService: FigmaService
     private var bootstrapped = false
+    private var hasLoadedPersistedSettings = false
+    private var autosaveTask: Task<Void, Never>?
 
     init(settingsStore: SettingsStore, agentService: AgentService, figmaService: FigmaService) {
         self.settingsStore = settingsStore
@@ -29,6 +49,7 @@ final class SettingsViewModel: ObservableObject {
         do {
             availableAgents = try await agentService.detectAvailableAgents()
             settings = try settingsStore.loadValidatingSelectedAgent(availableAgents: availableAgents.map(\.provider))
+            hasLoadedPersistedSettings = true
         } catch {
             message = error.localizedDescription
             isError = true
@@ -39,6 +60,7 @@ final class SettingsViewModel: ObservableObject {
         do {
             availableAgents = try await agentService.detectAvailableAgents()
             settings = try settingsStore.loadValidatingSelectedAgent(availableAgents: availableAgents.map(\.provider))
+            hasLoadedPersistedSettings = true
             message = "Agent 列表已刷新"
             isError = false
         } catch {
@@ -48,13 +70,15 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func testToken() async {
+        isTestingToken = true
+        defer { isTestingToken = false }
         do {
             try await figmaService.validateToken(settings.figmaToken)
-            message = "Token 可用"
-            isError = false
+            toastMessage = "Token 可用"
+            isToastError = false
         } catch {
-            message = error.localizedDescription
-            isError = true
+            toastMessage = error.localizedDescription
+            isToastError = true
         }
     }
 
@@ -62,11 +86,32 @@ final class SettingsViewModel: ObservableObject {
         settings.promptTemplate = AppSettings.defaultPrompt
     }
 
-    func save() {
+    func scheduleAutosave() {
+        guard hasLoadedPersistedSettings else {
+            return
+        }
+        autosaveTask?.cancel()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                self?.persistSettings(showSuccessMessage: false)
+            }
+        }
+    }
+
+    func persistSettings(showSuccessMessage: Bool) {
         do {
             try settingsStore.save(settings)
-            message = "设置已保存"
-            isError = false
+            if showSuccessMessage {
+                message = "设置已保存"
+                isError = false
+            } else if isError {
+                message = ""
+                isError = false
+            }
         } catch {
             message = error.localizedDescription
             isError = true
@@ -78,12 +123,11 @@ final class SettingsViewModel: ObservableObject {
             return
         }
         settings.selectedAgentID = selectedAgentID
-        do {
-            try settingsStore.save(settings)
-        } catch {
-            message = error.localizedDescription
-            isError = true
-        }
+        persistSettings(showSuccessMessage: false)
+    }
+
+    func markPersistedSettingsLoadedForTesting() {
+        hasLoadedPersistedSettings = true
     }
 }
 
@@ -356,6 +400,16 @@ final class GenerateViewModel: ObservableObject {
 
     func cancelGeneration() {
         generationTask?.cancel()
+    }
+
+    func refreshAgents() async {
+        await settingsViewModel.refreshAgents()
+        availableAgents = settingsViewModel.availableAgents
+        selectedAgentID = settingsViewModel.settings.selectedAgentID
+    }
+
+    func syncPromptFromSettings() {
+        promptTemplate = settingsViewModel.settings.promptTemplate
     }
 
     func deleteItem(id: UUID) {

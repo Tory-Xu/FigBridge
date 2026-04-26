@@ -534,11 +534,46 @@ struct GenerateViewModelTests {
         #expect(persisted.summary.outputDirectory == exportsDirectory.path)
         #expect(FileManager.default.fileExists(atPath: batchDirectory.path))
     }
+
+    @Test func syncPromptFromSettingsOverwritesWorkspacePrompt() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        harness.viewModel.promptTemplate = "workspace prompt"
+        harness.settingsViewModel.settings.promptTemplate = "settings prompt"
+
+        harness.viewModel.syncPromptFromSettings()
+
+        #expect(harness.viewModel.promptTemplate == "settings prompt")
+    }
+
+    @Test func refreshingAgentsUsesLatestSettingsViewModelAgents() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let claudePath = sandbox.root.appendingPathComponent("claude")
+        try makeExecutable(at: claudePath, body: "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"claude 1.0.0\"\nfi\n")
+
+        let harness = try GenerateViewModelHarness(
+            rootDirectory: sandbox.root,
+            agentShellClient: ShellClient(pathLookupDirectories: [sandbox.root], environment: ["PATH": "/usr/bin:/bin"])
+        )
+        var settings = try harness.settingsStore.load()
+        settings.selectedAgentID = "missing-agent"
+        try harness.settingsStore.save(settings)
+
+        await harness.viewModel.refreshAgents()
+
+        #expect(harness.viewModel.availableAgents.map(\.provider).contains(.claude))
+        #expect(harness.viewModel.selectedAgentID == nil)
+    }
 }
 
 @MainActor
 private struct GenerateViewModelHarness {
     let viewModel: GenerateViewModel
+    let settingsViewModel: SettingsViewModel
     let runner: any AgentRunning
     let recordedRunner: RecordingAgentRunner?
     let batchStore: BatchStore
@@ -549,7 +584,8 @@ private struct GenerateViewModelHarness {
         rootDirectory: URL,
         figmaTransport: (any FigmaHTTPTransport)? = nil,
         figmaToken: String = "",
-        runner: (any AgentRunning)? = nil
+        runner: (any AgentRunning)? = nil,
+        agentShellClient: ShellClient? = nil
     ) throws {
         let settingsStore = SettingsStore(fileURL: rootDirectory.appendingPathComponent("settings.json"))
         try settingsStore.save(AppSettings(
@@ -562,7 +598,7 @@ private struct GenerateViewModelHarness {
             parallelism: 2,
             defaultAgentCallStrategy: .singlePerLink
         ))
-        let agentService = AgentService(shellClient: ShellClient(environment: [:]))
+        let agentService = AgentService(shellClient: agentShellClient ?? ShellClient(environment: ["PATH": "/usr/bin:/bin"]))
         let figmaService: FigmaService
         if let figmaTransport {
             figmaService = FigmaService(baseDirectory: rootDirectory, transport: figmaTransport)
@@ -584,6 +620,7 @@ private struct GenerateViewModelHarness {
         )
 
         self.viewModel = viewModel
+        self.settingsViewModel = settingsViewModel
         self.runner = resolvedRunner
         self.recordedRunner = resolvedRunner as? RecordingAgentRunner
         self.batchStore = batchStore
@@ -600,7 +637,7 @@ private struct GenerateViewModelHarness {
     }
 }
 
-private func waitUntil(
+func waitUntil(
     timeoutNanoseconds: UInt64 = 2_000_000_000,
     intervalNanoseconds: UInt64 = 20_000_000,
     condition: @escaping @MainActor () -> Bool

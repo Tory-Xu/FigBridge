@@ -112,7 +112,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         defaultExportFormat: ExportFormat,
         defaultGenerationMode: GenerationMode,
         parallelism: Int,
-        defaultAgentCallStrategy: AgentCallStrategy = .singlePerLink
+        defaultAgentCallStrategy: AgentCallStrategy = .singleForBatch
     ) {
         self.selectedAgentID = selectedAgentID
         self.promptTemplate = promptTemplate
@@ -133,10 +133,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaultValue = AppSettings(
         promptTemplate: AppSettings.defaultPrompt,
         figmaToken: "",
-        defaultExportFormat: .png,
+        defaultExportFormat: .svg,
         defaultGenerationMode: .sequential,
         parallelism: 2,
-        defaultAgentCallStrategy: .singlePerLink
+        defaultAgentCallStrategy: .singleForBatch
     )
 
     public init(from decoder: any Decoder) throws {
@@ -148,7 +148,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         defaultExportFormat = try container.decode(ExportFormat.self, forKey: .defaultExportFormat)
         defaultGenerationMode = try container.decode(GenerationMode.self, forKey: .defaultGenerationMode)
         parallelism = try container.decodeIfPresent(Int.self, forKey: .parallelism) ?? AppSettings.defaultValue.parallelism
-        defaultAgentCallStrategy = try container.decodeIfPresent(AgentCallStrategy.self, forKey: .defaultAgentCallStrategy) ?? .singlePerLink
+        defaultAgentCallStrategy = try container.decodeIfPresent(AgentCallStrategy.self, forKey: .defaultAgentCallStrategy) ?? .singleForBatch
     }
 }
 

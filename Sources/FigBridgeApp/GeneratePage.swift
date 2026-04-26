@@ -10,15 +10,32 @@ struct GeneratePage: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("工作台")
                     .font(.title2.bold())
-                Picker("Agent", selection: $viewModel.selectedAgentID) {
-                    Text("未选择").tag(String?.none)
-                    ForEach(viewModel.availableAgents) { agent in
-                        Text(agent.provider.displayName).tag(String?.some(agent.id))
+                HStack(alignment: .center, spacing: 8) {
+                    Picker("Agent", selection: $viewModel.selectedAgentID) {
+                        Text("未选择").tag(String?.none)
+                        ForEach(viewModel.availableAgents) { agent in
+                            Text(agent.provider.displayName).tag(String?.some(agent.id))
+                        }
+                    }
+                    Button("刷新") {
+                        Task {
+                            await viewModel.refreshAgents()
+                        }
                     }
                 }
-                TextEditor(text: $viewModel.promptTemplate)
-                    .font(.body.monospaced())
-                    .frame(minHeight: 140)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Prompt")
+                            .font(.headline)
+                        Spacer()
+                        Button("同步默认 Prompt") {
+                            viewModel.syncPromptFromSettings()
+                        }
+                    }
+                    TextEditor(text: $viewModel.promptTemplate)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 140)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("输出目录")
                         .font(.caption)
