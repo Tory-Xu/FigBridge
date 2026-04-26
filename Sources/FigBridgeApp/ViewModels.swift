@@ -89,8 +89,21 @@ final class GenerateViewModel: ObservableObject {
     @Published var mode: GenerationMode = .sequential
     @Published var parallelism: Int = 2
     @Published var inputText: String = ""
-    @Published var items: [FigmaLinkItem] = []
-    @Published var selectedItemID: UUID?
+    @Published var items: [FigmaLinkItem] = [] {
+        didSet {
+            if selectedItemID != nil {
+                loadSelectedYAML()
+            }
+        }
+    }
+    @Published var selectedItemID: UUID? {
+        didSet {
+            guard oldValue != selectedItemID else {
+                return
+            }
+            loadSelectedYAML()
+        }
+    }
     @Published var validationMessage: String = ""
     @Published var exportMessage: String = ""
     @Published var isGenerating: Bool = false
@@ -98,6 +111,10 @@ final class GenerateViewModel: ObservableObject {
     @Published var completedCount: Int = 0
     @Published var currentBatchID: String?
     @Published var currentBatchDirectory: String?
+    @Published var selectedYAMLText: String?
+    @Published var renamingItemID: UUID?
+    @Published var renamingTitle: String = ""
+    @Published var renamingOriginalTitle: String = ""
 
     private let settingsViewModel: SettingsViewModel
     private let batchStore: BatchStore
@@ -181,6 +198,7 @@ final class GenerateViewModel: ObservableObject {
         completedCount = 0
         currentBatchID = nil
         currentBatchDirectory = nil
+        selectedYAMLText = nil
     }
 
     func generate() async {
@@ -219,6 +237,15 @@ final class GenerateViewModel: ObservableObject {
                 parallelism: parallelism,
                 existingBatchID: currentBatchID,
                 items: items,
+                itemStarted: { [weak self] item in
+                    await MainActor.run {
+                        guard let self,
+                              let index = self.items.firstIndex(where: { $0.id == item.id }) else {
+                            return
+                        }
+                        self.items[index] = item
+                    }
+                },
                 progress: { [weak self] completed, total, item in
                     await MainActor.run {
                         guard let self else {
@@ -240,6 +267,7 @@ final class GenerateViewModel: ObservableObject {
             items = persisted.summary.items
             currentBatchID = persisted.summary.id
             currentBatchDirectory = persisted.batchDirectory.path
+            loadSelectedYAML()
             validationMessage = "生成完成"
         } catch is CancellationError {
             validationMessage = "生成已取消"
@@ -273,6 +301,7 @@ final class GenerateViewModel: ObservableObject {
             let nextSelection = items.indices.contains(index) ? items[index].id : items.last?.id
             selectedItemID = nextSelection
         }
+        loadSelectedYAML()
     }
 
     func chooseOutputDirectory() {
@@ -282,6 +311,7 @@ final class GenerateViewModel: ObservableObject {
     }
 
     func loadSelectedItemPreviewIfNeeded() async {
+        loadSelectedYAML()
         guard let selectedItemID,
               let index = items.firstIndex(where: { $0.id == selectedItemID }) else {
             return
@@ -304,6 +334,65 @@ final class GenerateViewModel: ObservableObject {
             items[index].resourceStatus = .failed
             items[index].errorMessage = error.localizedDescription
         }
+    }
+
+    func beginRenamingSelectedItem() {
+        guard let item = selectedItem else {
+            return
+        }
+        let originalTitle = item.title ?? item.nodeName ?? item.nodeId
+        renamingItemID = item.id
+        renamingTitle = originalTitle
+        renamingOriginalTitle = originalTitle
+    }
+
+    func commitRename() {
+        guard let renamingItemID,
+              let index = items.firstIndex(where: { $0.id == renamingItemID }) else {
+            cancelRename()
+            return
+        }
+
+        let trimmedTitle = renamingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        items[index].title = trimmedTitle.isEmpty ? nil : trimmedTitle
+
+        if let currentBatchID {
+            do {
+                let persisted = try batchStore.updateBatchItem(batchID: currentBatchID, item: items[index])
+                items = persisted.summary.items
+                currentBatchDirectory = persisted.batchDirectory.path
+            } catch {
+                validationMessage = error.localizedDescription
+            }
+        }
+
+        cancelRename()
+    }
+
+    func cancelRename() {
+        renamingItemID = nil
+        renamingTitle = ""
+        renamingOriginalTitle = ""
+    }
+
+    func finishRenameOnBlur() {
+        guard renamingItemID != nil else {
+            return
+        }
+        let trimmedTitle = renamingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle == renamingOriginalTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
+            cancelRename()
+        } else {
+            commitRename()
+        }
+    }
+
+    private func loadSelectedYAML() {
+        guard let yamlPath = selectedItem?.generatedYAMLPath else {
+            selectedYAMLText = nil
+            return
+        }
+        selectedYAMLText = try? String(contentsOfFile: yamlPath, encoding: .utf8)
     }
 
     func exportPreviewImage() {
@@ -375,6 +464,9 @@ final class ViewerViewModel: ObservableObject {
     @Published var selectedYAMLText: String?
     @Published var selectedSourceInputText: String?
     @Published var message: String = ""
+    @Published var renamingItemID: UUID?
+    @Published var renamingTitle: String = ""
+    @Published var renamingOriginalTitle: String = ""
 
     private let batchStore: BatchStore
     private var isSynchronizingSelection = false
@@ -484,6 +576,59 @@ final class ViewerViewModel: ObservableObject {
             message = "已删除 \(batch.summary.id)"
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    func beginRenamingSelectedItem() {
+        guard let item = selectedItem else {
+            return
+        }
+        let originalTitle = item.title ?? item.nodeName ?? item.nodeId
+        renamingItemID = item.id
+        renamingTitle = originalTitle
+        renamingOriginalTitle = originalTitle
+    }
+
+    func commitRename() {
+        guard let batch = selectedBatch,
+              let item = selectedItem else {
+            cancelRename()
+            return
+        }
+
+        let trimmedTitle = renamingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updatedItem = item
+        updatedItem.title = trimmedTitle.isEmpty ? nil : trimmedTitle
+
+        do {
+            let persisted = try batchStore.updateBatchItem(batchID: batch.summary.id, item: updatedItem)
+            if let index = batches.firstIndex(where: { $0.summary.id == persisted.summary.id }) {
+                batches[index] = persisted
+            }
+            synchronizeSelectionForCurrentBatch(resetItemSelection: false)
+            message = "名称已更新"
+        } catch {
+            message = error.localizedDescription
+        }
+
+        cancelRename()
+    }
+
+    func cancelRename() {
+        renamingItemID = nil
+        renamingTitle = ""
+        renamingOriginalTitle = ""
+    }
+
+    func finishRenameOnBlur() {
+        guard renamingItemID != nil else {
+            return
+        }
+        let trimmedTitle = renamingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle == renamingOriginalTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
+            cancelRename()
+        } else {
+            commitRename()
         }
     }
 

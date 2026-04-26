@@ -3,6 +3,7 @@ import FigBridgeCore
 
 struct GeneratePage: View {
     @ObservedObject var viewModel: GenerateViewModel
+    @FocusState private var focusedRenamingItemID: UUID?
 
     var body: some View {
         HSplitView {
@@ -82,6 +83,14 @@ struct GeneratePage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 320)
+            .onSubmit {
+                if viewModel.renamingItemID != nil {
+                    viewModel.commitRename()
+                }
+            }
+            .onChange(of: viewModel.renamingItemID) { _, newValue in
+                focusedRenamingItemID = newValue
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("详情")
@@ -111,6 +120,18 @@ struct GeneratePage: View {
                         Text("YAML: \(yamlPath)")
                             .font(.caption)
                             .textSelection(.enabled)
+                        if let yamlText = viewModel.selectedYAMLText {
+                            ScrollView {
+                                Text(yamlText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .font(.body.monospaced())
+                                    .textSelection(.enabled)
+                            }
+                            .frame(minHeight: 120, maxHeight: 220)
+                        } else {
+                            Text("未找到 YAML")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     if !item.resourceItems.isEmpty {
                         List(item.resourceItems) { resource in
@@ -177,8 +198,25 @@ struct GeneratePage: View {
                 ForEach(items) { item in
                     HStack(alignment: .top, spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title ?? item.nodeName ?? item.nodeId)
-                                .font(.headline)
+                            if viewModel.renamingItemID == item.id {
+                                HStack(spacing: 8) {
+                                    TextField("", text: $viewModel.renamingTitle)
+                                        .textFieldStyle(.roundedBorder)
+                                        .focused($focusedRenamingItemID, equals: item.id)
+                                        .onChange(of: focusedRenamingItemID) { _, newValue in
+                                            if viewModel.renamingItemID == item.id, newValue != item.id {
+                                                viewModel.finishRenameOnBlur()
+                                            }
+                                        }
+                                    Button("取消编辑") {
+                                        viewModel.cancelRename()
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            } else {
+                                Text(item.title ?? item.nodeName ?? item.nodeId)
+                                    .font(.headline)
+                            }
                             Text("\(item.fileKey) / \(item.nodeId)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -203,6 +241,21 @@ struct GeneratePage: View {
                     }
                     .tag(item.id)
                 }
+            }
+            .onKeyPress(.return) {
+                guard viewModel.renamingItemID == nil,
+                      viewModel.selectedItemID != nil else {
+                    return .ignored
+                }
+                viewModel.beginRenamingSelectedItem()
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard viewModel.renamingItemID != nil else {
+                    return .ignored
+                }
+                viewModel.cancelRename()
+                return .handled
             }
         }
     }

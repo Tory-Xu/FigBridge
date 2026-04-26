@@ -3,6 +3,7 @@ import FigBridgeCore
 
 struct ViewerPage: View {
     @ObservedObject var viewModel: ViewerViewModel
+    @FocusState private var focusedRenamingItemID: UUID?
 
     var body: some View {
         HSplitView {
@@ -103,7 +104,24 @@ struct ViewerPage: View {
                         .font(.headline)
                     List(batch.summary.items, selection: $viewModel.selectedItemID) { item in
                         HStack {
-                            Text(item.title ?? item.nodeName ?? item.nodeId)
+                            if viewModel.renamingItemID == item.id {
+                                HStack(spacing: 8) {
+                                    TextField("", text: $viewModel.renamingTitle)
+                                        .textFieldStyle(.roundedBorder)
+                                        .focused($focusedRenamingItemID, equals: item.id)
+                                        .onChange(of: focusedRenamingItemID) { _, newValue in
+                                            if viewModel.renamingItemID == item.id, newValue != item.id {
+                                                viewModel.finishRenameOnBlur()
+                                            }
+                                        }
+                                    Button("取消编辑") {
+                                        viewModel.cancelRename()
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            } else {
+                                Text(item.title ?? item.nodeName ?? item.nodeId)
+                            }
                             Spacer()
                             if item.generatedYAMLPath != nil {
                                 Image(systemName: "checkmark.circle.fill")
@@ -111,6 +129,29 @@ struct ViewerPage: View {
                             }
                         }
                         .tag(item.id)
+                    }
+                    .onSubmit {
+                        if viewModel.renamingItemID != nil {
+                            viewModel.commitRename()
+                        }
+                    }
+                    .onChange(of: viewModel.renamingItemID) { _, newValue in
+                        focusedRenamingItemID = newValue
+                    }
+                    .onKeyPress(.return) {
+                        guard viewModel.renamingItemID == nil,
+                              viewModel.selectedItemID != nil else {
+                            return .ignored
+                        }
+                        viewModel.beginRenamingSelectedItem()
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        guard viewModel.renamingItemID != nil else {
+                            return .ignored
+                        }
+                        viewModel.cancelRename()
+                        return .handled
                     }
                     Button("Copy Prompt") {
                         viewModel.copyPrompt()

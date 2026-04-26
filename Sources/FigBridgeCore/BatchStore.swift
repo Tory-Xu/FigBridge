@@ -80,6 +80,26 @@ public final class BatchStore: Sendable {
         )
     }
 
+    public func updateBatchItem(batchID: String, item: FigmaLinkItem) throws -> PersistedBatch {
+        guard let persisted = try loadBatch(id: batchID) else {
+            throw BatchStoreError.invalidBatchDirectory
+        }
+        var updatedItems = persisted.summary.items
+        guard let index = updatedItems.firstIndex(where: { $0.id == item.id }) else {
+            return persisted
+        }
+        updatedItems[index] = item
+        return try updateBatch(
+            id: batchID,
+            sourceInputText: persisted.summary.sourceInputText,
+            agent: persisted.summary.agent,
+            promptSnapshot: persisted.summary.promptSnapshot,
+            outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
+            mode: persisted.summary.mode,
+            items: updatedItems
+        )
+    }
+
     public func scanBatches() throws -> [PersistedBatch] {
         guard FileManager.default.fileExists(atPath: rootDirectory.path) else {
             return []
@@ -281,7 +301,7 @@ public final class BatchStore: Sendable {
     }
 
     private func directoryName(for item: FigmaLinkItem) -> String {
-        "\(item.id.uuidString.lowercased())-\(slug(for: item.nodeName ?? item.title ?? item.nodeId))"
+        "\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))"
     }
 
     private func itemDirectory(in batchDirectory: URL, itemID: UUID) -> URL? {

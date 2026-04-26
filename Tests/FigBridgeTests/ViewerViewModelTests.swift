@@ -172,6 +172,34 @@ struct ViewerViewModelTests {
         #expect(viewModel.selectedSourceInputText == "source-2")
     }
 
+    @Test func renameSelectedItemPersistsToBatchStorage() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let persisted = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        viewModel.selectedItemID = persisted.summary.items[0].id
+        viewModel.beginRenamingSelectedItem()
+        viewModel.renamingTitle = "Renamed A"
+        viewModel.commitRename()
+
+        #expect(viewModel.selectedItem?.title == "Renamed A")
+
+        let reloaded = try #require(try store.loadBatch(id: "batch-1"))
+        #expect(reloaded.summary.items[0].title == "Renamed A")
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,
