@@ -162,6 +162,7 @@ final class GenerateViewModel: ObservableObject {
     private var bootstrapped = false
     private var generationTask: Task<PersistedBatch, Error>?
     private var isRestoringWorkspace = false
+    private var resourceLoadTasks: [UUID: Task<Void, Never>] = [:]
 
     init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService, draftStore: GenerateWorkspaceDraftStore) {
         self.settingsViewModel = settingsViewModel
@@ -207,6 +208,7 @@ final class GenerateViewModel: ObservableObject {
             applyWorkspaceDraft(draft)
         }
         isRestoringWorkspace = false
+        preloadResourcesForAllItemsIfNeeded()
     }
 
     func addInput() {
@@ -227,6 +229,7 @@ final class GenerateViewModel: ObservableObject {
         if selectedItemID == nil {
             selectedItemID = items.first?.id
         }
+        preloadResourcesForAllItemsIfNeeded()
     }
 
     func resetWorkspace() {
@@ -235,6 +238,7 @@ final class GenerateViewModel: ObservableObject {
 
     func startNewBatch() {
         cancelGeneration()
+        cancelAllResourceLoads()
         isRestoringWorkspace = true
         applyDefaultWorkspaceSettings()
         inputText = ""
@@ -338,6 +342,7 @@ final class GenerateViewModel: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else {
             return
         }
+        cancelResourceLoad(for: id)
         let removedItem = items.remove(at: index)
 
         if let currentBatchID {
@@ -364,28 +369,20 @@ final class GenerateViewModel: ObservableObject {
 
     func loadSelectedItemPreviewIfNeeded() async {
         loadSelectedYAML()
-        guard let selectedItemID,
-              let index = items.firstIndex(where: { $0.id == selectedItemID }) else {
+        guard let selectedItemID else {
             return
         }
-        let token = settingsViewModel.settings.figmaToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else {
-            return
-        }
-        if items[index].previewStatus == .success || items[index].resourceStatus == .success {
-            return
-        }
+        scheduleResourceLoad(for: selectedItemID, force: false)
+    }
 
-        items[index].previewStatus = .loading
-        items[index].resourceStatus = .loading
-        do {
-            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], token: token)
-            items[index] = resolved
-        } catch {
-            items[index].previewStatus = .failed
-            items[index].resourceStatus = .failed
-            items[index].errorMessage = error.localizedDescription
+    func preloadResourcesForAllItemsIfNeeded() {
+        for item in items {
+            scheduleResourceLoad(for: item.id, force: false)
         }
+    }
+
+    func reloadResources(for itemID: UUID) {
+        scheduleResourceLoad(for: itemID, force: true)
     }
 
     func beginRenamingSelectedItem() {
@@ -495,6 +492,7 @@ final class GenerateViewModel: ObservableObject {
     }
 
     func loadBatchIntoWorkspace(_ persisted: PersistedBatch) {
+        cancelAllResourceLoads()
         isRestoringWorkspace = true
         selectedAgentID = persisted.summary.agent.id
         promptTemplate = persisted.summary.promptSnapshot
@@ -517,6 +515,7 @@ final class GenerateViewModel: ObservableObject {
         isRestoringWorkspace = false
         loadSelectedYAML()
         persistDraftIfNeeded()
+        preloadResourcesForAllItemsIfNeeded()
     }
 
     private func applyDefaultWorkspaceSettings() {
@@ -582,6 +581,86 @@ final class GenerateViewModel: ObservableObject {
             return
         }
         settingsViewModel.updateSelectedAgent(selectedAgentID)
+    }
+
+    private func scheduleResourceLoad(for itemID: UUID, force: Bool) {
+        if force {
+            cancelResourceLoad(for: itemID)
+        } else if resourceLoadTasks[itemID] != nil {
+            return
+        }
+
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+        let item = items[index]
+        if !force {
+            if item.previewStatus == .success || item.resourceStatus == .success {
+                return
+            }
+            if item.previewStatus == .loading || item.resourceStatus == .loading {
+                return
+            }
+        }
+
+        let task = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.loadResources(for: itemID)
+        }
+        resourceLoadTasks[itemID] = task
+    }
+
+    private func loadResources(for itemID: UUID) async {
+        defer { resourceLoadTasks[itemID] = nil }
+        guard !Task.isCancelled else {
+            return
+        }
+        guard let index = items.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+        let token = settingsViewModel.settings.figmaToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            return
+        }
+
+        items[index].previewStatus = .loading
+        items[index].resourceStatus = .loading
+        items[index].errorMessage = nil
+
+        do {
+            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], token: token)
+            guard !Task.isCancelled else {
+                return
+            }
+            guard let refreshedIndex = items.firstIndex(where: { $0.id == itemID }) else {
+                return
+            }
+            items[refreshedIndex] = resolved
+        } catch {
+            guard !Task.isCancelled else {
+                return
+            }
+            guard let refreshedIndex = items.firstIndex(where: { $0.id == itemID }) else {
+                return
+            }
+            items[refreshedIndex].previewStatus = .failed
+            items[refreshedIndex].resourceStatus = .failed
+            items[refreshedIndex].errorMessage = error.localizedDescription
+        }
+    }
+
+    private func cancelResourceLoad(for itemID: UUID) {
+        resourceLoadTasks[itemID]?.cancel()
+        resourceLoadTasks[itemID] = nil
+    }
+
+    private func cancelAllResourceLoads() {
+        for task in resourceLoadTasks.values {
+            task.cancel()
+        }
+        resourceLoadTasks.removeAll()
     }
 }
 

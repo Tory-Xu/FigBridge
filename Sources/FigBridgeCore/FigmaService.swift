@@ -157,7 +157,7 @@ public actor FigmaService {
         }
 
         resolved.resourceItems = cachedResources
-        resolved.resourceStatus = cachedResources.isEmpty ? .failed : .success
+        resolved.resourceStatus = .success
         return resolved
     }
 

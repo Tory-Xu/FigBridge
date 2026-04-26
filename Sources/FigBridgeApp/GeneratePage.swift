@@ -181,9 +181,6 @@ struct GeneratePage: View {
         .task {
             await viewModel.bootstrap()
         }
-        .task(id: viewModel.selectedItemID) {
-            await viewModel.loadSelectedItemPreviewIfNeeded()
-        }
     }
 
     @ViewBuilder
@@ -222,6 +219,21 @@ struct GeneratePage: View {
                                 .foregroundStyle(.secondary)
                             Text(item.generationStatus.rawValue)
                                 .font(.caption)
+                            Text("资源: \(item.resourceStatus.rawValue)")
+                                .font(.caption2)
+                                .foregroundStyle(item.resourceStatus == .failed ? .red : .secondary)
+                            if item.resourceStatus == .failed {
+                                if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
+                                    Text(errorMessage)
+                                        .font(.caption2)
+                                        .foregroundStyle(.red)
+                                        .lineLimit(2)
+                                }
+                                Button("刷新资源") {
+                                    viewModel.reloadResources(for: item.id)
+                                }
+                                .buttonStyle(.borderless)
+                            }
                             if showsGeneratedState {
                                 Text("YAML 已生成")
                                     .font(.caption2)

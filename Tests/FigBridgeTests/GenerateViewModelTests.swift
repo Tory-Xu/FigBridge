@@ -5,6 +5,131 @@ import Testing
 
 @MainActor
 struct GenerateViewModelTests {
+    @Test func addInputPreloadsResourcesForAllNewItems() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let transport = MockFigmaTransport(responses: [
+            MockHTTPResponse(
+                path: "/v1/files/FILE1/nodes",
+                query: ["ids": "1:2"],
+                statusCode: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Node 1",
+                        "fills": [{ "type": "IMAGE", "imageRef": "img-ref-1" }],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            ),
+            MockHTTPResponse(
+                path: "/v1/images/FILE1",
+                query: ["ids": "1:2", "format": "png", "scale": "2"],
+                statusCode: 200,
+                body: #"{"images":{"1:2":"https://cdn.figma.test/preview-1.png"}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE1/images",
+                query: [:],
+                statusCode: 200,
+                body: #"{"meta":{"images":{"img-ref-1":"https://cdn.figma.test/resource-1.png"}}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE2/nodes",
+                query: ["ids": "3:4"],
+                statusCode: 200,
+                body: """
+                {
+                  "nodes": {
+                    "3:4": {
+                      "document": {
+                        "id": "3:4",
+                        "name": "Node 2",
+                        "fills": [{ "type": "IMAGE", "imageRef": "img-ref-2" }],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            ),
+            MockHTTPResponse(
+                path: "/v1/images/FILE2",
+                query: ["ids": "3:4", "format": "png", "scale": "2"],
+                statusCode: 200,
+                body: #"{"images":{"3:4":"https://cdn.figma.test/preview-2.png"}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE2/images",
+                query: [:],
+                statusCode: 200,
+                body: #"{"meta":{"images":{"img-ref-2":"https://cdn.figma.test/resource-2.png"}}}"#
+            ),
+            MockHTTPResponse(url: "https://cdn.figma.test/preview-1.png", statusCode: 200, data: Data("PNG1".utf8)),
+            MockHTTPResponse(url: "https://cdn.figma.test/resource-1.png", statusCode: 200, data: Data("RES1".utf8)),
+            MockHTTPResponse(url: "https://cdn.figma.test/preview-2.png", statusCode: 200, data: Data("PNG2".utf8)),
+            MockHTTPResponse(url: "https://cdn.figma.test/resource-2.png", statusCode: 200, data: Data("RES2".utf8)),
+        ])
+        let harness = try GenerateViewModelHarness(
+            rootDirectory: sandbox.root,
+            figmaTransport: transport,
+            figmaToken: "token"
+        )
+
+        harness.viewModel.inputText = """
+        首页: @https://www.figma.com/design/FILE1/App?node-id=1-2
+        列表: @https://www.figma.com/design/FILE2/App?node-id=3-4
+        """
+        harness.viewModel.addInput()
+
+        let loaded = await waitUntil {
+            harness.viewModel.items.count == 2
+            && harness.viewModel.items.allSatisfy { $0.previewStatus == .success && $0.resourceStatus == .success }
+        }
+        #expect(loaded)
+
+        let requests = await transport.recordedRequests()
+        #expect(requests.contains { $0.path == "/v1/files/FILE1/nodes" })
+        #expect(requests.contains { $0.path == "/v1/files/FILE2/nodes" })
+    }
+
+    @Test func reloadResourcesRetriesOnlyFailedItem() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let transport = FlakyFileImagesTransport()
+        let harness = try GenerateViewModelHarness(
+            rootDirectory: sandbox.root,
+            figmaTransport: transport,
+            figmaToken: "token"
+        )
+
+        harness.viewModel.inputText = "首页: @https://www.figma.com/design/FILE1/App?node-id=1-2"
+        harness.viewModel.addInput()
+
+        let failed = await waitUntil {
+            harness.viewModel.items.first?.resourceStatus == .failed
+        }
+        #expect(failed)
+        let itemID = try #require(harness.viewModel.items.first?.id)
+
+        harness.viewModel.reloadResources(for: itemID)
+
+        let recovered = await waitUntil {
+            harness.viewModel.items.first?.resourceStatus == .success
+            && harness.viewModel.items.first?.previewStatus == .success
+        }
+        #expect(recovered)
+        #expect(await transport.fileImagesCallCount() == 2)
+    }
+
     @Test func multipleGenerationsReuseSameBatchUntilReset() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }
@@ -279,20 +404,30 @@ private struct GenerateViewModelHarness {
     let draftStore: GenerateWorkspaceDraftStore
     let settingsStore: SettingsStore
 
-    init(rootDirectory: URL) throws {
+    init(
+        rootDirectory: URL,
+        figmaTransport: (any FigmaHTTPTransport)? = nil,
+        figmaToken: String = ""
+    ) throws {
         let settingsStore = SettingsStore(fileURL: rootDirectory.appendingPathComponent("settings.json"))
         try settingsStore.save(AppSettings(
             selectedAgentID: AgentProvider.codex.id,
             promptTemplate: "prompt",
             outputDirectoryPath: rootDirectory.path,
-            figmaToken: "",
+            figmaToken: figmaToken,
             defaultExportFormat: .png,
             defaultGenerationMode: .sequential,
             parallelism: 2
         ))
         let agentService = AgentService(shellClient: ShellClient(environment: [:]))
-        let figmaService = FigmaService(baseDirectory: rootDirectory)
+        let figmaService: FigmaService
+        if let figmaTransport {
+            figmaService = FigmaService(baseDirectory: rootDirectory, transport: figmaTransport)
+        } else {
+            figmaService = FigmaService(baseDirectory: rootDirectory)
+        }
         let settingsViewModel = SettingsViewModel(settingsStore: settingsStore, agentService: agentService, figmaService: figmaService)
+        settingsViewModel.settings = try settingsStore.load()
         let batchStore = BatchStore(rootDirectory: rootDirectory)
         let draftStore = GenerateWorkspaceDraftStore(fileURL: rootDirectory.appendingPathComponent("generate-workspace-draft.json"))
         let runner = RecordingAgentRunner()
@@ -317,6 +452,92 @@ private struct GenerateViewModelHarness {
         viewModel.outputDirectoryPath = rootDirectory.path
         viewModel.mode = GenerationMode.sequential
         viewModel.parallelism = 2
+    }
+}
+
+private func waitUntil(
+    timeoutNanoseconds: UInt64 = 2_000_000_000,
+    intervalNanoseconds: UInt64 = 20_000_000,
+    condition: @escaping @MainActor () -> Bool
+) async -> Bool {
+    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+    while DispatchTime.now().uptimeNanoseconds < deadline {
+        if await MainActor.run(body: condition) {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: intervalNanoseconds)
+    }
+    return await MainActor.run(body: condition)
+}
+
+private actor FlakyFileImagesTransport: FigmaHTTPTransport {
+    private var fileImagesCalls = 0
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url else {
+            throw URLError(.badURL)
+        }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        let query = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
+        let path = url.path
+
+        switch path {
+        case "/v1/files/FILE1/nodes":
+            return response(
+                url: url,
+                status: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Node 1",
+                        "fills": [{ "type": "IMAGE", "imageRef": "img-ref-1" }],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            )
+        case "/v1/images/FILE1":
+            if query["ids"] == "1:2" {
+                return response(url: url, status: 200, body: #"{"images":{"1:2":"https://cdn.figma.test/preview.png"}}"#)
+            }
+        case "/v1/files/FILE1/images":
+            fileImagesCalls += 1
+            if fileImagesCalls == 1 {
+                return response(url: url, status: 500, body: #"{"err":"temporary"}"#)
+            }
+            return response(url: url, status: 200, body: #"{"meta":{"images":{"img-ref-1":"https://cdn.figma.test/resource.png"}}}"#)
+        default:
+            break
+        }
+
+        if url.absoluteString == "https://cdn.figma.test/preview.png" {
+            return response(url: url, status: 200, data: Data("PNG".utf8))
+        }
+        if url.absoluteString == "https://cdn.figma.test/resource.png" {
+            return response(url: url, status: 200, data: Data("RES".utf8))
+        }
+        throw URLError(.badServerResponse)
+    }
+
+    func fileImagesCallCount() -> Int {
+        fileImagesCalls
+    }
+
+    private func response(url: URL, status: Int, body: String) -> (Data, HTTPURLResponse) {
+        let data = Data(body.utf8)
+        let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+        return (data, http)
+    }
+
+    private func response(url: URL, status: Int, data: Data) -> (Data, HTTPURLResponse) {
+        let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+        return (data, http)
     }
 }
 

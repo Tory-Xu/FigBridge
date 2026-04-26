@@ -162,6 +162,63 @@ struct FigmaServiceTests {
         #expect(resolved.resourceStatus == .success)
         #expect(resolved.resourceItems.count == 1)
     }
+
+    @Test func treatsEmptyResourceSetAsSuccessfulResourceLoad() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let transport = MockFigmaTransport(responses: [
+            MockHTTPResponse(
+                path: "/v1/files/FILE123/nodes",
+                query: ["ids": "1:2"],
+                statusCode: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Plain Frame",
+                        "fills": [],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            ),
+            MockHTTPResponse(
+                path: "/v1/images/FILE123",
+                query: ["ids": "1:2", "format": "png", "scale": "2"],
+                statusCode: 200,
+                body: #"{"images":{"1:2":"https://cdn.figma.test/preview.png"}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE123/images",
+                query: [:],
+                statusCode: 200,
+                body: #"{"meta":{"images":{}}}"#
+            ),
+            MockHTTPResponse(
+                url: "https://cdn.figma.test/preview.png",
+                statusCode: 200,
+                data: Data("PNGDATA".utf8)
+            )
+        ])
+        let service = FigmaService(baseDirectory: sandbox.root, transport: transport)
+        let item = FigmaLinkItem(
+            rawInputLine: "普通容器",
+            title: "普通容器",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+
+        let resolved = try await service.loadPreviewAndResources(for: item, token: "token")
+
+        #expect(resolved.previewStatus == .success)
+        #expect(resolved.resourceStatus == .success)
+        #expect(resolved.resourceItems.isEmpty)
+    }
 }
 
 actor MockFigmaTransport: FigmaHTTPTransport {
