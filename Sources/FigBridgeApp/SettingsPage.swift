@@ -12,10 +12,10 @@ struct SettingsPage: View {
                     HStack(alignment: .center, spacing: 12) {
                         Group {
                             if tokenFieldVisible {
-                                TextField("请输入 Figma Token", text: $viewModel.settings.figmaToken)
+                                TextField("", text: $viewModel.settings.figmaToken)
                                     .textFieldStyle(.roundedBorder)
                             } else {
-                                SecureField("请输入 Figma Token", text: $viewModel.settings.figmaToken)
+                                SecureField("", text: $viewModel.settings.figmaToken)
                                     .textFieldStyle(.roundedBorder)
                             }
                         }
