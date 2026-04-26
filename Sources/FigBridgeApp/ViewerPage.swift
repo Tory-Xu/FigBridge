@@ -3,6 +3,7 @@ import FigBridgeCore
 
 struct ViewerPage: View {
     @ObservedObject var viewModel: ViewerViewModel
+    @FocusState private var focusedRenamingBatchID: String?
     @FocusState private var focusedRenamingItemID: UUID?
 
     var body: some View {
@@ -64,13 +65,53 @@ struct ViewerPage: View {
                 List(selection: $viewModel.selectedBatchID) {
                     ForEach(viewModel.batches, id: \.summary.id) { batch in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(batch.summary.id)
+                            if viewModel.renamingBatchID == batch.summary.id {
+                                HStack(spacing: 8) {
+                                    TextField("", text: $viewModel.renamingBatchTitle)
+                                        .textFieldStyle(.roundedBorder)
+                                        .focused($focusedRenamingBatchID, equals: batch.summary.id)
+                                        .onChange(of: focusedRenamingBatchID) { _, newValue in
+                                            if viewModel.renamingBatchID == batch.summary.id, newValue != batch.summary.id {
+                                                viewModel.finishBatchRenameOnBlur()
+                                            }
+                                        }
+                                    Button("取消编辑") {
+                                        viewModel.cancelBatchRename()
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            } else {
+                                Text(batch.summary.id)
+                            }
                             Text("\(batch.summary.agent.displayName) · \(batch.summary.items.count) 项")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         .tag(batch.summary.id)
                     }
+                }
+                .onSubmit {
+                    if viewModel.renamingBatchID != nil {
+                        viewModel.commitBatchRename()
+                    }
+                }
+                .onChange(of: viewModel.renamingBatchID) { _, newValue in
+                    focusedRenamingBatchID = newValue
+                }
+                .onKeyPress(.return) {
+                    guard viewModel.renamingBatchID == nil,
+                          viewModel.selectedBatchID != nil else {
+                        return .ignored
+                    }
+                    viewModel.beginRenamingSelectedBatch()
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard viewModel.renamingBatchID != nil else {
+                        return .ignored
+                    }
+                    viewModel.cancelBatchRename()
+                    return .handled
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

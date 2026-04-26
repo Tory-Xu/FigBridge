@@ -200,6 +200,35 @@ struct ViewerViewModelTests {
         #expect(reloaded.summary.items[0].title == "Renamed A")
     }
 
+    @Test func renameSelectedBatchPersistsToBatchStorageAndKeepsSelection() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        viewModel.beginRenamingSelectedBatch()
+        viewModel.renamingBatchTitle = "batch-renamed"
+        viewModel.commitBatchRename()
+
+        #expect(viewModel.selectedBatchID == "batch-renamed")
+        #expect(viewModel.selectedBatch?.summary.id == "batch-renamed")
+
+        #expect(try store.loadBatch(id: "batch-1") == nil)
+        let reloaded = try #require(try store.loadBatch(id: "batch-renamed"))
+        #expect(reloaded.summary.id == "batch-renamed")
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,

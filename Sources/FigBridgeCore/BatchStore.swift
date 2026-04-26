@@ -100,6 +100,39 @@ public final class BatchStore: Sendable {
         )
     }
 
+    public func renameBatch(id: String, to newID: String) throws -> PersistedBatch {
+        guard let persisted = try loadBatch(id: id) else {
+            throw BatchStoreError.invalidBatchDirectory
+        }
+
+        let trimmedID = newID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty else {
+            throw BatchStoreError.invalidBatchName
+        }
+        guard trimmedID != id else {
+            return persisted
+        }
+
+        let destinationDirectory = rootDirectory.appendingPathComponent(trimmedID, isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: destinationDirectory.path) else {
+            throw BatchStoreError.batchAlreadyExists
+        }
+
+        try FileManager.default.moveItem(at: persisted.batchDirectory, to: destinationDirectory)
+
+        let renamedBatch = GenerationBatch(
+            id: trimmedID,
+            createdAt: persisted.summary.createdAt,
+            agent: persisted.summary.agent,
+            promptSnapshot: persisted.summary.promptSnapshot,
+            sourceInputText: persisted.summary.sourceInputText,
+            outputDirectory: persisted.summary.outputDirectory,
+            mode: persisted.summary.mode,
+            items: persisted.summary.items
+        )
+        return try writeBatch(renamedBatch, into: destinationDirectory)
+    }
+
     public func scanBatches() throws -> [PersistedBatch] {
         guard FileManager.default.fileExists(atPath: rootDirectory.path) else {
             return []
@@ -316,6 +349,8 @@ public final class BatchStore: Sendable {
 
 public enum BatchStoreError: LocalizedError {
     case invalidBatchDirectory
+    case invalidBatchName
+    case batchAlreadyExists
     case exportFailed
     case importFailed
     case sourceFileMissing
@@ -324,6 +359,10 @@ public enum BatchStoreError: LocalizedError {
         switch self {
         case .invalidBatchDirectory:
             "批次目录缺少 batch.json"
+        case .invalidBatchName:
+            "批次名称不能为空"
+        case .batchAlreadyExists:
+            "批次名称已存在"
         case .exportFailed:
             "导出批次失败"
         case .importFailed:

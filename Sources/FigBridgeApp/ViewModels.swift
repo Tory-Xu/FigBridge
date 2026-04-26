@@ -464,6 +464,9 @@ final class ViewerViewModel: ObservableObject {
     @Published var selectedYAMLText: String?
     @Published var selectedSourceInputText: String?
     @Published var message: String = ""
+    @Published var renamingBatchID: String?
+    @Published var renamingBatchTitle: String = ""
+    @Published var renamingOriginalBatchTitle: String = ""
     @Published var renamingItemID: UUID?
     @Published var renamingTitle: String = ""
     @Published var renamingOriginalTitle: String = ""
@@ -576,6 +579,55 @@ final class ViewerViewModel: ObservableObject {
             message = "已删除 \(batch.summary.id)"
         } catch {
             message = error.localizedDescription
+        }
+    }
+
+    func beginRenamingSelectedBatch() {
+        guard let batch = selectedBatch else {
+            return
+        }
+        renamingBatchID = batch.summary.id
+        renamingBatchTitle = batch.summary.id
+        renamingOriginalBatchTitle = batch.summary.id
+    }
+
+    func commitBatchRename() {
+        guard let batch = selectedBatch else {
+            cancelBatchRename()
+            return
+        }
+
+        let trimmedTitle = renamingBatchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let persisted = try batchStore.renameBatch(id: batch.summary.id, to: trimmedTitle)
+            if let index = batches.firstIndex(where: { $0.summary.id == batch.summary.id }) {
+                batches[index] = persisted
+            }
+            selectedBatchID = persisted.summary.id
+            synchronizeSelectionForCurrentBatch(resetItemSelection: false)
+            message = "名称已更新"
+        } catch {
+            message = error.localizedDescription
+        }
+
+        cancelBatchRename()
+    }
+
+    func cancelBatchRename() {
+        renamingBatchID = nil
+        renamingBatchTitle = ""
+        renamingOriginalBatchTitle = ""
+    }
+
+    func finishBatchRenameOnBlur() {
+        guard renamingBatchID != nil else {
+            return
+        }
+        let trimmedTitle = renamingBatchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle == renamingOriginalBatchTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
+            cancelBatchRename()
+        } else {
+            commitBatchRename()
         }
     }
 
