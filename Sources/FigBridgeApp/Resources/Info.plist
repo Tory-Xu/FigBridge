@@ -6,6 +6,8 @@
 	<string>FigBridge</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.xuxuxu.figbridge</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>FigBridge</string>
 	<key>CFBundleShortVersionString</key>
