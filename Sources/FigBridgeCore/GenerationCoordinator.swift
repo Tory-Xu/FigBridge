@@ -58,6 +58,7 @@ public struct GenerationCoordinator: Sendable {
                 sourceInputText: sourceInputText,
                 outputDirectory: outputDirectory.path,
                 mode: mode,
+                parallelism: parallelism,
                 items: resolvedItems
             )
             return try batchStore.createBatch(batch)
@@ -70,6 +71,7 @@ public struct GenerationCoordinator: Sendable {
             promptSnapshot: promptTemplate,
             outputDirectory: outputDirectory,
             mode: mode,
+            parallelism: parallelism,
             items: resolvedItems
         )
     }

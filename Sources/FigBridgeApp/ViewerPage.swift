@@ -24,6 +24,9 @@ struct ViewerPage: View {
                             viewerActionButton("导出批次", systemImage: "square.and.arrow.up") {
                                 viewModel.exportSelectedBatch()
                             }
+                            viewerActionButton("继续编辑", systemImage: "square.and.pencil") {
+                                viewModel.continueEditingSelectedBatch()
+                            }
                             viewerActionButton("打开目录", systemImage: "folder") {
                                 viewModel.openSelectedBatchInFinder()
                             }
@@ -44,6 +47,9 @@ struct ViewerPage: View {
                             }
                             Button("导出批次", systemImage: "square.and.arrow.up") {
                                 viewModel.exportSelectedBatch()
+                            }
+                            Button("继续编辑", systemImage: "square.and.pencil") {
+                                viewModel.continueEditingSelectedBatch()
                             }
                             Button("打开目录", systemImage: "folder") {
                                 viewModel.openSelectedBatchInFinder()
@@ -198,6 +204,9 @@ struct ViewerPage: View {
                         viewModel.copyPrompt()
                     }
                     .disabled(!viewModel.canCopyPrompt)
+                    Button("继续编辑") {
+                        viewModel.continueEditingSelectedBatch()
+                    }
                 } else {
                     ContentUnavailableView("暂无批次", systemImage: "archivebox")
                 }

@@ -205,7 +205,20 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
     public var sourceInputText: String
     public var outputDirectory: String
     public var mode: GenerationMode
+    public var parallelism: Int
     public var items: [FigmaLinkItem]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case agent
+        case promptSnapshot
+        case sourceInputText
+        case outputDirectory
+        case mode
+        case parallelism
+        case items
+    }
 
     public init(
         id: String,
@@ -215,6 +228,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         sourceInputText: String,
         outputDirectory: String,
         mode: GenerationMode,
+        parallelism: Int,
         items: [FigmaLinkItem]
     ) {
         self.id = id
@@ -224,7 +238,21 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         self.sourceInputText = sourceInputText
         self.outputDirectory = outputDirectory
         self.mode = mode
+        self.parallelism = parallelism
         self.items = items
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        agent = try container.decode(AgentProvider.self, forKey: .agent)
+        promptSnapshot = try container.decode(String.self, forKey: .promptSnapshot)
+        sourceInputText = try container.decode(String.self, forKey: .sourceInputText)
+        outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
+        mode = try container.decode(GenerationMode.self, forKey: .mode)
+        parallelism = try container.decodeIfPresent(Int.self, forKey: .parallelism) ?? AppSettings.defaultValue.parallelism
+        items = try container.decode([FigmaLinkItem].self, forKey: .items)
     }
 }
 

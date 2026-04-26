@@ -47,8 +47,8 @@ struct GeneratePage: View {
                     Button("添加") {
                         viewModel.addInput()
                     }
-                    Button("重置") {
-                        viewModel.resetWorkspace()
+                    Button("新建批次") {
+                        viewModel.startNewBatch()
                     }
                     Button("生成") {
                         Task {

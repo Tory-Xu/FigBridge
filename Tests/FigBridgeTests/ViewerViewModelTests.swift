@@ -143,6 +143,7 @@ struct ViewerViewModelTests {
             promptSnapshot: initial.summary.promptSnapshot,
             outputDirectory: URL(fileURLWithPath: initial.summary.outputDirectory, isDirectory: true),
             mode: initial.summary.mode,
+            parallelism: initial.summary.parallelism,
             items: initial.summary.items + [newItem]
         )
 
@@ -160,6 +161,7 @@ struct ViewerViewModelTests {
             promptSnapshot: rescanned.summary.promptSnapshot,
             outputDirectory: URL(fileURLWithPath: rescanned.summary.outputDirectory, isDirectory: true),
             mode: rescanned.summary.mode,
+            parallelism: rescanned.summary.parallelism,
             items: updatedItems
         )
 
@@ -229,6 +231,32 @@ struct ViewerViewModelTests {
         #expect(reloaded.summary.id == "batch-renamed")
     }
 
+    @Test func continueEditingSelectedBatchCallsHandlerWithCurrentBatch() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let persisted = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        var receivedBatchID: String?
+        let viewModel = ViewerViewModel(batchStore: store) { batch in
+            receivedBatchID = batch.summary.id
+        }
+        viewModel.reload()
+
+        viewModel.continueEditingSelectedBatch()
+
+        #expect(receivedBatchID == persisted.summary.id)
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,
@@ -248,6 +276,7 @@ struct ViewerViewModelTests {
             sourceInputText: sourceInputText,
             outputDirectory: store.rootDirectory.path,
             mode: .sequential,
+            parallelism: 2,
             items: items
         )
         var persisted = try store.createBatch(batch)
@@ -273,6 +302,7 @@ struct ViewerViewModelTests {
             sourceInputText: persisted.summary.sourceInputText,
             outputDirectory: persisted.summary.outputDirectory,
             mode: persisted.summary.mode,
+            parallelism: persisted.summary.parallelism,
             items: updatedItems
         )
         let batchURL = persisted.batchDirectory.appendingPathComponent("batch.json")

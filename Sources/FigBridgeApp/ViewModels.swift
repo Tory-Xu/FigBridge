@@ -83,17 +83,30 @@ final class SettingsViewModel: ObservableObject {
 @MainActor
 final class GenerateViewModel: ObservableObject {
     @Published var availableAgents: [AgentDescriptor] = []
-    @Published var selectedAgentID: String?
-    @Published var promptTemplate: String = AppSettings.defaultPrompt
-    @Published var outputDirectoryPath: String = ""
-    @Published var mode: GenerationMode = .sequential
-    @Published var parallelism: Int = 2
-    @Published var inputText: String = ""
+    @Published var selectedAgentID: String? {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var promptTemplate: String = AppSettings.defaultPrompt {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var outputDirectoryPath: String = "" {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var mode: GenerationMode = .sequential {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var parallelism: Int = 2 {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var inputText: String = "" {
+        didSet { persistDraftIfNeeded() }
+    }
     @Published var items: [FigmaLinkItem] = [] {
         didSet {
             if selectedItemID != nil {
                 loadSelectedYAML()
             }
+            persistDraftIfNeeded()
         }
     }
     @Published var selectedItemID: UUID? {
@@ -102,6 +115,7 @@ final class GenerateViewModel: ObservableObject {
                 return
             }
             loadSelectedYAML()
+            persistDraftIfNeeded()
         }
     }
     @Published var validationMessage: String = ""
@@ -109,8 +123,12 @@ final class GenerateViewModel: ObservableObject {
     @Published var isGenerating: Bool = false
     @Published var progressText: String = ""
     @Published var completedCount: Int = 0
-    @Published var currentBatchID: String?
-    @Published var currentBatchDirectory: String?
+    @Published var currentBatchID: String? {
+        didSet { persistDraftIfNeeded() }
+    }
+    @Published var currentBatchDirectory: String? {
+        didSet { persistDraftIfNeeded() }
+    }
     @Published var selectedYAMLText: String?
     @Published var renamingItemID: UUID?
     @Published var renamingTitle: String = ""
@@ -120,15 +138,18 @@ final class GenerateViewModel: ObservableObject {
     private let batchStore: BatchStore
     private let generationCoordinator: GenerationCoordinator
     private let figmaService: FigmaService
+    private let draftStore: GenerateWorkspaceDraftStore
     private let parser = FigmaLinkParser()
     private var bootstrapped = false
     private var generationTask: Task<PersistedBatch, Error>?
+    private var isRestoringWorkspace = false
 
-    init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService) {
+    init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService, draftStore: GenerateWorkspaceDraftStore) {
         self.settingsViewModel = settingsViewModel
         self.batchStore = batchStore
         self.generationCoordinator = generationCoordinator
         self.figmaService = figmaService
+        self.draftStore = draftStore
     }
 
     var selectedItem: FigmaLinkItem? {
@@ -161,11 +182,12 @@ final class GenerateViewModel: ObservableObject {
         bootstrapped = true
         await settingsViewModel.bootstrap()
         availableAgents = settingsViewModel.availableAgents
-        selectedAgentID = settingsViewModel.settings.selectedAgentID
-        promptTemplate = settingsViewModel.settings.promptTemplate
-        outputDirectoryPath = settingsViewModel.settings.outputDirectoryPath ?? batchStore.rootDirectory.path
-        mode = settingsViewModel.settings.defaultGenerationMode
-        parallelism = settingsViewModel.settings.parallelism
+        isRestoringWorkspace = true
+        applyDefaultWorkspaceSettings()
+        if let draft = draftStore.load() {
+            applyWorkspaceDraft(draft)
+        }
+        isRestoringWorkspace = false
     }
 
     func addInput() {
@@ -189,6 +211,13 @@ final class GenerateViewModel: ObservableObject {
     }
 
     func resetWorkspace() {
+        startNewBatch()
+    }
+
+    func startNewBatch() {
+        cancelGeneration()
+        isRestoringWorkspace = true
+        applyDefaultWorkspaceSettings()
         inputText = ""
         items = []
         selectedItemID = nil
@@ -199,6 +228,8 @@ final class GenerateViewModel: ObservableObject {
         currentBatchID = nil
         currentBatchDirectory = nil
         selectedYAMLText = nil
+        isRestoringWorkspace = false
+        persistDraft(force: true)
     }
 
     func generate() async {
@@ -269,6 +300,7 @@ final class GenerateViewModel: ObservableObject {
             currentBatchDirectory = persisted.batchDirectory.path
             loadSelectedYAML()
             validationMessage = "生成完成"
+            persistDraftIfNeeded()
         } catch is CancellationError {
             validationMessage = "生成已取消"
         } catch {
@@ -302,6 +334,7 @@ final class GenerateViewModel: ObservableObject {
             selectedItemID = nextSelection
         }
         loadSelectedYAML()
+        persistDraftIfNeeded()
     }
 
     func chooseOutputDirectory() {
@@ -367,6 +400,7 @@ final class GenerateViewModel: ObservableObject {
         }
 
         cancelRename()
+        persistDraftIfNeeded()
     }
 
     func cancelRename() {
@@ -440,6 +474,89 @@ final class GenerateViewModel: ObservableObject {
             exportMessage = error.localizedDescription
         }
     }
+
+    func loadBatchIntoWorkspace(_ persisted: PersistedBatch) {
+        isRestoringWorkspace = true
+        selectedAgentID = persisted.summary.agent.id
+        promptTemplate = persisted.summary.promptSnapshot
+        outputDirectoryPath = persisted.summary.outputDirectory
+        mode = persisted.summary.mode
+        parallelism = persisted.summary.parallelism
+        inputText = persisted.summary.sourceInputText
+        items = persisted.summary.items
+        selectedItemID = persisted.summary.items.first?.id
+        currentBatchID = persisted.summary.id
+        currentBatchDirectory = persisted.batchDirectory.path
+        validationMessage = ""
+        exportMessage = ""
+        progressText = ""
+        completedCount = 0
+        selectedYAMLText = nil
+        renamingItemID = nil
+        renamingTitle = ""
+        renamingOriginalTitle = ""
+        isRestoringWorkspace = false
+        loadSelectedYAML()
+        persistDraftIfNeeded()
+    }
+
+    private func applyDefaultWorkspaceSettings() {
+        selectedAgentID = settingsViewModel.settings.selectedAgentID
+        promptTemplate = settingsViewModel.settings.promptTemplate
+        outputDirectoryPath = settingsViewModel.settings.outputDirectoryPath ?? batchStore.rootDirectory.path
+        mode = settingsViewModel.settings.defaultGenerationMode
+        parallelism = settingsViewModel.settings.parallelism
+    }
+
+    private func applyWorkspaceDraft(_ draft: GenerateWorkspaceDraft) {
+        selectedAgentID = draft.selectedAgentID
+        promptTemplate = draft.promptTemplate
+        outputDirectoryPath = draft.outputDirectoryPath
+        mode = draft.mode
+        parallelism = draft.parallelism
+        inputText = draft.inputText
+        items = draft.items
+        selectedItemID = draft.selectedItemID
+        currentBatchID = draft.currentBatchID
+        currentBatchDirectory = draft.currentBatchDirectory
+        loadSelectedYAML()
+    }
+
+    private func persistDraftIfNeeded() {
+        guard !isRestoringWorkspace else {
+            return
+        }
+        let hasMeaningfulWorkspaceState = currentBatchID != nil
+            || !items.isEmpty
+            || !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasMeaningfulWorkspaceState else {
+            return
+        }
+        persistDraft(force: false)
+    }
+
+    private func persistDraft(force: Bool) {
+        guard !isRestoringWorkspace || force else {
+            return
+        }
+        let draft = GenerateWorkspaceDraft(
+            selectedAgentID: selectedAgentID,
+            promptTemplate: promptTemplate,
+            outputDirectoryPath: outputDirectoryPath,
+            mode: mode,
+            parallelism: parallelism,
+            inputText: inputText,
+            items: items,
+            selectedItemID: selectedItemID,
+            currentBatchID: currentBatchID,
+            currentBatchDirectory: currentBatchDirectory
+        )
+        do {
+            try draftStore.save(draft)
+        } catch {
+            validationMessage = error.localizedDescription
+        }
+    }
 }
 
 @MainActor
@@ -472,10 +589,12 @@ final class ViewerViewModel: ObservableObject {
     @Published var renamingOriginalTitle: String = ""
 
     private let batchStore: BatchStore
+    private let continueEditing: (PersistedBatch) -> Void
     private var isSynchronizingSelection = false
 
-    init(batchStore: BatchStore) {
+    init(batchStore: BatchStore, continueEditing: @escaping (PersistedBatch) -> Void = { _ in }) {
         self.batchStore = batchStore
+        self.continueEditing = continueEditing
     }
 
     var selectedBatch: PersistedBatch? {
@@ -580,6 +699,13 @@ final class ViewerViewModel: ObservableObject {
         } catch {
             message = error.localizedDescription
         }
+    }
+
+    func continueEditingSelectedBatch() {
+        guard let batch = selectedBatch else {
+            return
+        }
+        continueEditing(batch)
     }
 
     func beginRenamingSelectedBatch() {

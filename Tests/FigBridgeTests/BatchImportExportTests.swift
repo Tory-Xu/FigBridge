@@ -23,6 +23,7 @@ struct BatchImportExportTests {
             sourceInputText: "input",
             outputDirectory: sandbox.root.path,
             mode: .sequential,
+            parallelism: 2,
             items: [item]
         )
 

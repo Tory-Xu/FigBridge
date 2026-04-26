@@ -23,6 +23,7 @@ struct BatchStoreTests {
             sourceInputText: "input",
             outputDirectory: sandbox.root.path,
             mode: .sequential,
+            parallelism: 2,
             items: [item]
         )
 
@@ -33,6 +34,7 @@ struct BatchStoreTests {
         #expect(FileManager.default.fileExists(atPath: persisted.itemDirectories[0].appendingPathComponent("meta.json").path))
         #expect(scanned.count == 1)
         #expect(scanned[0].summary.items.count == 1)
+        #expect(scanned[0].summary.parallelism == 2)
     }
 
     @Test func copiesPromptFromExistingYamlOnly() throws {
@@ -52,5 +54,31 @@ struct BatchStoreTests {
 
         #expect(prompt.contains("Implement this design from yaml files."))
         #expect(prompt.contains("/tmp/a.yaml"))
+    }
+
+    @Test func loadsLegacyBatchWithoutParallelismUsingDefaultValue() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let batchDirectory = sandbox.root.appendingPathComponent("legacy-batch", isDirectory: true)
+        try FileManager.default.createDirectory(at: batchDirectory, withIntermediateDirectories: true)
+
+        let legacyJSON = """
+        {
+          "agent" : "codex",
+          "createdAt" : "1970-01-01T00:00:00Z",
+          "id" : "legacy-batch",
+          "items" : [ ],
+          "mode" : "sequential",
+          "outputDirectory" : "\(sandbox.root.path)",
+          "promptSnapshot" : "prompt",
+          "sourceInputText" : "input"
+        }
+        """
+        try legacyJSON.write(to: batchDirectory.appendingPathComponent("batch.json"), atomically: true, encoding: .utf8)
+
+        let loaded = try #require(try store.loadBatch(id: "legacy-batch"))
+        #expect(loaded.summary.parallelism == AppSettings.defaultValue.parallelism)
     }
 }
