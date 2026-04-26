@@ -24,7 +24,7 @@ final class SettingsViewModel: ObservableObject {
     static let tokenHelpSteps: [String] = [
         "打开 Figma，进入 Settings。",
         "进入 Personal access tokens。",
-        "创建新 Token 并复制到这里。",
+        "创建新 Token 并复制到这里（建议使用拥有只读权限的 Personal Access Token）。",
     ]
     static let tokenHelpURL = URL(string: "https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens")!
 

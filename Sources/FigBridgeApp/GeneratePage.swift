@@ -40,6 +40,7 @@ struct GeneratePage: View {
                         Button("同步默认 Prompt") {
                             viewModel.syncPromptFromSettings()
                         }
+                        .padding(.trailing, 6)
                     }
                     TextEditor(text: $viewModel.promptTemplate)
                         .font(.body.monospaced())
@@ -263,68 +264,76 @@ struct GeneratePage: View {
                     .font(.title3.bold())
                 Spacer()
             }
-            List(selection: $viewModel.selectedItemID) {
-                ForEach(items) { item in
-                    HStack(alignment: .top, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if viewModel.renamingItemID == item.id {
-                                HStack(spacing: 8) {
-                                    TextField("", text: $viewModel.renamingTitle)
-                                        .textFieldStyle(.roundedBorder)
-                                        .focused($focusedRenamingItemID, equals: item.id)
-                                        .onChange(of: focusedRenamingItemID) { _, newValue in
-                                            if viewModel.renamingItemID == item.id, newValue != item.id {
-                                                viewModel.finishRenameOnBlur()
-                                            }
+            List(items, selection: $viewModel.selectedItemID) { item in
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if viewModel.renamingItemID == item.id {
+                            HStack(spacing: 8) {
+                                TextField("", text: $viewModel.renamingTitle)
+                                    .textFieldStyle(.roundedBorder)
+                                    .focused($focusedRenamingItemID, equals: item.id)
+                                    .onChange(of: focusedRenamingItemID) { _, newValue in
+                                        if viewModel.renamingItemID == item.id, newValue != item.id {
+                                            viewModel.finishRenameOnBlur()
                                         }
-                                    Button("取消编辑") {
-                                        viewModel.cancelRename()
                                     }
-                                    .buttonStyle(.borderless)
-                                }
-                            } else {
-                                Text(item.title ?? item.nodeName ?? item.nodeId)
-                                    .font(.headline)
-                            }
-                            Text("\(item.fileKey) / \(item.nodeId)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(item.generationStatus.rawValue)
-                                .font(.caption)
-                            Text("资源: \(viewModel.canRefreshResources(for: item) && item.resourceStatus != .failed ? "token 未设置" : item.resourceStatus.rawValue)")
-                                .font(.caption2)
-                                .foregroundStyle(viewModel.canRefreshResources(for: item) ? .red : .secondary)
-                            if viewModel.canRefreshResources(for: item) {
-                                if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
-                                    Text(errorMessage)
-                                        .font(.caption2)
-                                        .foregroundStyle(.red)
-                                        .lineLimit(2)
-                                }
-                                Button("刷新") {
-                                    viewModel.reloadResources(for: item.id)
+                                Button("取消编辑") {
+                                    viewModel.cancelRename()
                                 }
                                 .buttonStyle(.borderless)
                             }
-                            if showsGeneratedState {
-                                Text("YAML 已生成")
+                        } else {
+                            Text(item.title ?? item.nodeName ?? item.nodeId)
+                                .font(.headline)
+                        }
+                        Text("\(item.fileKey) / \(item.nodeId)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(item.generationStatus.rawValue)
+                            .font(.caption)
+                        Text("资源: \(viewModel.canRefreshResources(for: item) && item.resourceStatus != .failed ? "token 未设置" : item.resourceStatus.rawValue)")
+                            .font(.caption2)
+                            .foregroundStyle(viewModel.canRefreshResources(for: item) ? .red : .secondary)
+                        if viewModel.canRefreshResources(for: item) {
+                            if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
+                                Text(errorMessage)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let logSummary = item.logSummary {
-                                Text(logSummary)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.red)
+                                    .lineLimit(2)
                             }
                         }
-                        Spacer()
-                        Button("删除") {
+                        if showsGeneratedState {
+                            Text("YAML 已生成")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let logSummary = item.logSummary {
+                            Text(logSummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 8) {
+                        if viewModel.canRefreshResources(for: item) {
+                            itemActionButton(
+                                "刷新",
+                                systemImage: "arrow.clockwise",
+                                role: .none
+                            ) {
+                                viewModel.reloadResources(for: item.id)
+                            }
+                        }
+                        itemActionButton(
+                            "删除",
+                            systemImage: "trash",
+                            role: .destructive
+                        ) {
                             viewModel.deleteItem(id: item.id)
                         }
-                        .buttonStyle(.borderless)
                     }
-                    .tag(item.id)
                 }
+                .tag(item.id)
             }
             .onKeyPress(.return) {
                 guard viewModel.renamingItemID == nil,
@@ -341,6 +350,40 @@ struct GeneratePage: View {
                 viewModel.cancelRename()
                 return .handled
             }
+        }
+    }
+
+    @ViewBuilder
+    private func itemActionButton(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.bold())
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(minWidth: 72)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(role == .destructive ? .red : .primary)
+        .background(
+            role == .destructive
+            ? Color.red.opacity(0.10)
+            : Color.secondary.opacity(0.10),
+            in: Capsule()
+        )
+        .overlay {
+            Capsule()
+                .stroke(
+                    role == .destructive
+                    ? Color.red.opacity(0.22)
+                    : Color.secondary.opacity(0.18),
+                    lineWidth: 1
+                )
         }
     }
 }

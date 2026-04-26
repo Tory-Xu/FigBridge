@@ -138,14 +138,6 @@ struct ViewerPage: View {
                     Text(viewModel.selectedBatchExportsDirectory?.path ?? batch.summary.outputDirectory)
                         .font(.caption)
                         .textSelection(.enabled)
-                    Text("原始输入")
-                        .font(.headline)
-                    ScrollView {
-                        Text(viewModel.selectedSourceInputText ?? batch.summary.sourceInputText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .font(.body.monospaced())
-                            .textSelection(.enabled)
-                    }
                     Text("Prompt")
                         .font(.headline)
                     ScrollView {

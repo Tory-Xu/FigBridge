@@ -12,10 +12,10 @@ struct SettingsPage: View {
                     HStack(alignment: .center, spacing: 12) {
                         Group {
                             if tokenFieldVisible {
-                                TextField("请输入 Figma Personal Access Token", text: $viewModel.settings.figmaToken)
+                                TextField("请输入 Figma Token", text: $viewModel.settings.figmaToken)
                                     .textFieldStyle(.roundedBorder)
                             } else {
-                                SecureField("请输入 Figma Personal Access Token", text: $viewModel.settings.figmaToken)
+                                SecureField("请输入 Figma Token", text: $viewModel.settings.figmaToken)
                                     .textFieldStyle(.roundedBorder)
                             }
                         }
@@ -44,9 +44,6 @@ struct SettingsPage: View {
                             viewModel.isShowingTokenHelp = true
                         }
                     }
-                    Text("用于读取节点预览和资源，建议使用拥有只读权限的 Personal Access Token。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
