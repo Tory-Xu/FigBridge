@@ -130,6 +130,76 @@ struct GenerateViewModelTests {
         #expect(await transport.fileImagesCallCount() == 2)
     }
 
+    @Test func preloadedResourcesAreArchivedIntoBatchDirectoryAfterGeneration() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let transport = MockFigmaTransport(responses: [
+            MockHTTPResponse(
+                path: "/v1/files/FILE1/nodes",
+                query: ["ids": "1:2"],
+                statusCode: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Node 1",
+                        "fills": [{ "type": "IMAGE", "imageRef": "img-ref-1" }],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            ),
+            MockHTTPResponse(
+                path: "/v1/images/FILE1",
+                query: ["ids": "1:2", "format": "png", "scale": "2"],
+                statusCode: 200,
+                body: #"{"images":{"1:2":"https://cdn.figma.test/preview-1.png"}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE1/images",
+                query: [:],
+                statusCode: 200,
+                body: #"{"meta":{"images":{"img-ref-1":"https://cdn.figma.test/resource-1.png"}}}"#
+            ),
+            MockHTTPResponse(url: "https://cdn.figma.test/preview-1.png", statusCode: 200, data: Data("PNG1".utf8)),
+            MockHTTPResponse(url: "https://cdn.figma.test/resource-1.png", statusCode: 200, data: Data("RES1".utf8)),
+        ])
+        let harness = try GenerateViewModelHarness(
+            rootDirectory: sandbox.root,
+            figmaTransport: transport,
+            figmaToken: "token"
+        )
+
+        harness.viewModel.inputText = "首页: @https://www.figma.com/design/FILE1/App?node-id=1-2"
+        harness.viewModel.addInput()
+
+        let loaded = await waitUntil {
+            harness.viewModel.items.first?.previewStatus == .success
+            && harness.viewModel.items.first?.resourceStatus == .success
+        }
+        #expect(loaded)
+
+        await harness.viewModel.generate()
+
+        let batchID = try #require(harness.viewModel.currentBatchID)
+        let persisted = try #require(try harness.batchStore.loadBatch(id: batchID))
+        let persistedItem = try #require(persisted.summary.items.first)
+        let previewPath = try #require(persistedItem.previewImagePath)
+        let resourcePath = try #require(persistedItem.resourceItems.first?.localPath)
+
+        #expect(previewPath.hasPrefix(persisted.batchDirectory.path))
+        #expect(resourcePath.hasPrefix(persisted.batchDirectory.path))
+        #expect(!previewPath.contains("__workspace__"))
+        #expect(!resourcePath.contains("__workspace__"))
+        #expect(FileManager.default.fileExists(atPath: previewPath))
+        #expect(FileManager.default.fileExists(atPath: resourcePath))
+    }
+
     @Test func multipleGenerationsReuseSameBatchUntilReset() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

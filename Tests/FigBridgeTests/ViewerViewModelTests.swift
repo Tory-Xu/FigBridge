@@ -282,6 +282,20 @@ struct ViewerViewModelTests {
         #expect(exportsDirectory.standardizedFileURL.path == expectedDirectory.standardizedFileURL.path)
     }
 
+    @Test func exportMessageIncludesMissingAssetCount() {
+        let archiveURL = URL(fileURLWithPath: "/tmp/batch-1.zip")
+        let result = BatchExportResult(
+            archiveURL: archiveURL,
+            missingPreviewPaths: [],
+            missingResourcePaths: ["/tmp/a.png"]
+        )
+
+        let message = ViewerViewModel.makeExportMessage(for: result)
+
+        #expect(message.contains("已导出到 \(archiveURL.path)"))
+        #expect(message.contains("1 个图片资源缺失"))
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,

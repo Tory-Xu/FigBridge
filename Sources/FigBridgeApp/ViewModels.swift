@@ -716,7 +716,15 @@ final class GenerateViewModel: ObservableObject {
             guard let refreshedIndex = items.firstIndex(where: { $0.id == itemID }) else {
                 return
             }
-            items[refreshedIndex] = resolved
+            var persistedItem = resolved
+            if let currentBatchID {
+                let persisted = try batchStore.updateBatchItem(batchID: currentBatchID, item: resolved)
+                currentBatchDirectory = persisted.batchDirectory.path
+                if let updated = persisted.summary.items.first(where: { $0.id == itemID }) {
+                    persistedItem = updated
+                }
+            }
+            items[refreshedIndex] = persistedItem
         } catch {
             guard !Task.isCancelled else {
                 return
@@ -870,8 +878,8 @@ final class ViewerViewModel: ObservableObject {
         let baseDirectory = DesktopSupport.chooseDirectory(canCreateDirectories: true) ?? batch.batchDirectory.deletingLastPathComponent()
         let destinationURL = baseDirectory.appendingPathComponent("\(batch.summary.id).zip")
         do {
-            try batchStore.exportBatch(at: batch.batchDirectory, to: destinationURL)
-            message = "已导出到 \(destinationURL.path)"
+            let result = try batchStore.exportBatch(at: batch.batchDirectory, to: destinationURL)
+            message = Self.makeExportMessage(for: result)
         } catch {
             message = error.localizedDescription
         }
@@ -931,6 +939,14 @@ final class ViewerViewModel: ObservableObject {
         } catch {
             message = error.localizedDescription
         }
+    }
+
+    static func makeExportMessage(for result: BatchExportResult) -> String {
+        let baseMessage = "已导出到 \(result.archiveURL.path)"
+        guard result.missingImageCount > 0 else {
+            return baseMessage
+        }
+        return "\(baseMessage)，但有 \(result.missingImageCount) 个图片资源缺失"
     }
 
     func continueEditingSelectedBatch() {

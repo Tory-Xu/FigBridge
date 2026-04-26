@@ -149,4 +149,66 @@ struct BatchStoreTests {
         let loaded = try #require(try store.loadBatch(id: "legacy-batch"))
         #expect(loaded.summary.parallelism == AppSettings.defaultValue.parallelism)
     }
+
+    @Test func createBatchArchivesExternalImageAssetsIntoBatchDirectory() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root.appendingPathComponent("batches"))
+        let workspaceAssetsDirectory = sandbox.root
+            .appendingPathComponent("__workspace__", isDirectory: true)
+            .appendingPathComponent("items/item-1", isDirectory: true)
+            .appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceAssetsDirectory, withIntermediateDirectories: true)
+
+        let previewURL = workspaceAssetsDirectory.appendingPathComponent("preview.png")
+        let resourceURL = workspaceAssetsDirectory.appendingPathComponent("1-image.png")
+        try Data("preview".utf8).write(to: previewURL)
+        try Data("resource".utf8).write(to: resourceURL)
+
+        var item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        item.previewImagePath = previewURL.path
+        item.resourceItems = [
+            FigmaResourceItem(
+                name: "image",
+                kind: .image,
+                format: .png,
+                remoteURL: "https://cdn.example/image.png",
+                localPath: resourceURL.path
+            )
+        ]
+
+        let batch = GenerationBatch(
+            id: "batch-archive-assets",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item]
+        )
+
+        let persisted = try store.createBatch(batch)
+        let persistedItem = try #require(persisted.summary.items.first)
+        let archivedPreviewPath = try #require(persistedItem.previewImagePath)
+        let archivedResourcePath = try #require(persistedItem.resourceItems.first?.localPath)
+
+        #expect(archivedPreviewPath.hasPrefix(persisted.batchDirectory.path))
+        #expect(archivedResourcePath.hasPrefix(persisted.batchDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: archivedPreviewPath))
+        #expect(FileManager.default.fileExists(atPath: archivedResourcePath))
+
+        let batchJSON = try String(contentsOf: persisted.batchDirectory.appendingPathComponent("batch.json"), encoding: .utf8)
+        #expect(batchJSON.contains("items\\/"))
+        #expect(!batchJSON.contains("__workspace__"))
+    }
 }

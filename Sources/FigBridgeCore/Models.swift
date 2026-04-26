@@ -299,6 +299,26 @@ public struct GenerationRunLog: Equatable, Sendable, Identifiable {
     }
 }
 
+public struct BatchExportResult: Equatable, Sendable {
+    public var archiveURL: URL
+    public var missingPreviewPaths: [String]
+    public var missingResourcePaths: [String]
+
+    public init(
+        archiveURL: URL,
+        missingPreviewPaths: [String] = [],
+        missingResourcePaths: [String] = []
+    ) {
+        self.archiveURL = archiveURL
+        self.missingPreviewPaths = missingPreviewPaths
+        self.missingResourcePaths = missingResourcePaths
+    }
+
+    public var missingImageCount: Int {
+        missingPreviewPaths.count + missingResourcePaths.count
+    }
+}
+
 public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public var createdAt: Date
