@@ -69,6 +69,7 @@ struct SettingsViewModelTests {
 
         #expect(viewModel.availableAgents.map(\.provider).contains(.claude))
         #expect(viewModel.settings.selectedAgentID == nil)
+        #expect(viewModel.message.isEmpty)
     }
 
     @Test func testTokenReportsSuccessMessage() async throws {

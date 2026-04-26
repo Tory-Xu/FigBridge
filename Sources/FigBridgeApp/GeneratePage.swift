@@ -17,11 +17,20 @@ struct GeneratePage: View {
                             Text(agent.provider.displayName).tag(String?.some(agent.id))
                         }
                     }
-                    Button("刷新") {
+                    Button {
                         Task {
                             await viewModel.refreshAgents()
                         }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.isRefreshingAgents {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(viewModel.isRefreshingAgents ? "刷新中..." : "刷新")
+                        }
                     }
+                    .disabled(viewModel.isRefreshingAgents)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -125,8 +134,10 @@ struct GeneratePage: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("预览状态: \(item.previewStatus.rawValue)")
-                    Text("资源状态: \(item.resourceStatus.rawValue)")
-                    Text("生成状态: \(item.generationStatus.rawValue)")
+                    Text("资源状态: \(viewModel.selectedItemResourceStatusText)")
+                        .foregroundStyle(viewModel.shouldHighlightSelectedItemResourceStatus ? .red : .primary)
+                    Text("生成状态: \(viewModel.selectedItemGenerationStatusText)")
+                        .foregroundStyle(viewModel.shouldHighlightSelectedItemGenerationStatus ? .red : .primary)
                     if let previewImagePath = item.previewImagePath,
                        let image = NSImage(contentsOfFile: previewImagePath) {
                         Image(nsImage: image)
@@ -280,17 +291,17 @@ struct GeneratePage: View {
                                 .foregroundStyle(.secondary)
                             Text(item.generationStatus.rawValue)
                                 .font(.caption)
-                            Text("资源: \(item.resourceStatus.rawValue)")
+                            Text("资源: \(viewModel.canRefreshResources(for: item) && item.resourceStatus != .failed ? "token 未设置" : item.resourceStatus.rawValue)")
                                 .font(.caption2)
-                                .foregroundStyle(item.resourceStatus == .failed ? .red : .secondary)
-                            if item.resourceStatus == .failed {
+                                .foregroundStyle(viewModel.canRefreshResources(for: item) ? .red : .secondary)
+                            if viewModel.canRefreshResources(for: item) {
                                 if let errorMessage = item.errorMessage, !errorMessage.isEmpty {
                                     Text(errorMessage)
                                         .font(.caption2)
                                         .foregroundStyle(.red)
                                         .lineLimit(2)
                                 }
-                                Button("刷新资源") {
+                                Button("刷新") {
                                     viewModel.reloadResources(for: item.id)
                                 }
                                 .buttonStyle(.borderless)

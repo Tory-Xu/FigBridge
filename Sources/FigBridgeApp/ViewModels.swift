@@ -61,7 +61,7 @@ final class SettingsViewModel: ObservableObject {
             availableAgents = try await agentService.detectAvailableAgents()
             settings = try settingsStore.loadValidatingSelectedAgent(availableAgents: availableAgents.map(\.provider))
             hasLoadedPersistedSettings = true
-            message = "Agent 列表已刷新"
+            message = ""
             isError = false
         } catch {
             message = error.localizedDescription
@@ -134,6 +134,7 @@ final class SettingsViewModel: ObservableObject {
 @MainActor
 final class GenerateViewModel: ObservableObject {
     @Published var availableAgents: [AgentDescriptor] = []
+    @Published var isRefreshingAgents: Bool = false
     @Published var selectedAgentID: String? {
         didSet {
             guard oldValue != selectedAgentID else {
@@ -228,6 +229,34 @@ final class GenerateViewModel: ObservableObject {
             return nil
         }
         return items.first(where: { $0.id == selectedItemID })
+    }
+
+    var selectedItemResourceStatusText: String {
+        guard let item = selectedItem else {
+            return ""
+        }
+        if isTokenMissing {
+            return "token 未设置"
+        }
+        return item.resourceStatus.rawValue
+    }
+
+    var selectedItemGenerationStatusText: String {
+        guard let item = selectedItem else {
+            return ""
+        }
+        if isTokenMissing {
+            return "token 未设置"
+        }
+        return item.generationStatus.rawValue
+    }
+
+    var shouldHighlightSelectedItemResourceStatus: Bool {
+        isTokenMissing || selectedItem?.resourceStatus == .failed
+    }
+
+    var shouldHighlightSelectedItemGenerationStatus: Bool {
+        isTokenMissing || selectedItem?.generationStatus == .failed
     }
 
     var pendingItems: [FigmaLinkItem] {
@@ -403,6 +432,8 @@ final class GenerateViewModel: ObservableObject {
     }
 
     func refreshAgents() async {
+        isRefreshingAgents = true
+        defer { isRefreshingAgents = false }
         await settingsViewModel.refreshAgents()
         availableAgents = settingsViewModel.availableAgents
         selectedAgentID = settingsViewModel.settings.selectedAgentID
@@ -453,6 +484,10 @@ final class GenerateViewModel: ObservableObject {
 
     func reloadResources(for itemID: UUID) {
         scheduleResourceLoad(for: itemID, force: true)
+    }
+
+    func canRefreshResources(for item: FigmaLinkItem) -> Bool {
+        isTokenMissing || item.resourceStatus == .failed
     }
 
     func beginRenamingSelectedItem() {
@@ -835,6 +870,10 @@ final class GenerateViewModel: ObservableObject {
         return batchDirectory
             .appendingPathComponent("items", isDirectory: true)
             .appendingPathComponent("\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
+    }
+
+    private var isTokenMissing: Bool {
+        settingsViewModel.settings.figmaToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
