@@ -218,6 +218,57 @@ struct GenerateViewModelTests {
         #expect(draft.currentBatchID == "batch-1")
         #expect(draft.parallelism == 5)
     }
+
+    @Test func selectingAgentImmediatelyPersistsToSettingsStore() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+
+        harness.viewModel.selectedAgentID = AgentProvider.claude.id
+
+        let settings = try harness.settingsStore.load()
+        #expect(settings.selectedAgentID == AgentProvider.claude.id)
+    }
+
+    @Test func clearingAgentSelectionPersistsNilToSettingsStore() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+
+        harness.viewModel.selectedAgentID = nil
+
+        let settings = try harness.settingsStore.load()
+        #expect(settings.selectedAgentID == nil)
+    }
+
+    @Test func bootstrapDoesNotOverridePersistedSelectedAgentWithDraftSelection() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        let draft = GenerateWorkspaceDraft(
+            selectedAgentID: AgentProvider.claude.id,
+            promptTemplate: "draft prompt",
+            outputDirectoryPath: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            inputText: "draft",
+            items: [],
+            selectedItemID: nil,
+            currentBatchID: nil,
+            currentBatchDirectory: nil
+        )
+        try harness.draftStore.save(draft)
+
+        let restoredHarness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        await restoredHarness.viewModel.bootstrap()
+
+        let settings = try restoredHarness.settingsStore.load()
+        #expect(restoredHarness.viewModel.selectedAgentID == AgentProvider.claude.id)
+        #expect(settings.selectedAgentID == AgentProvider.codex.id)
+    }
 }
 
 @MainActor
@@ -226,6 +277,7 @@ private struct GenerateViewModelHarness {
     let runner: RecordingAgentRunner
     let batchStore: BatchStore
     let draftStore: GenerateWorkspaceDraftStore
+    let settingsStore: SettingsStore
 
     init(rootDirectory: URL) throws {
         let settingsStore = SettingsStore(fileURL: rootDirectory.appendingPathComponent("settings.json"))
@@ -257,6 +309,7 @@ private struct GenerateViewModelHarness {
         self.runner = runner
         self.batchStore = batchStore
         self.draftStore = draftStore
+        self.settingsStore = settingsStore
 
         viewModel.availableAgents = [AgentDescriptor(provider: .codex, path: "/mock/codex", version: "1.0")]
         viewModel.selectedAgentID = AgentProvider.codex.id

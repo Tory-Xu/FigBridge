@@ -78,13 +78,32 @@ final class SettingsViewModel: ObservableObject {
             settings.outputDirectoryPath = selectedURL.path
         }
     }
+
+    func updateSelectedAgent(_ selectedAgentID: String?) {
+        guard settings.selectedAgentID != selectedAgentID else {
+            return
+        }
+        settings.selectedAgentID = selectedAgentID
+        do {
+            try settingsStore.save(settings)
+        } catch {
+            message = error.localizedDescription
+            isError = true
+        }
+    }
 }
 
 @MainActor
 final class GenerateViewModel: ObservableObject {
     @Published var availableAgents: [AgentDescriptor] = []
     @Published var selectedAgentID: String? {
-        didSet { persistDraftIfNeeded() }
+        didSet {
+            guard oldValue != selectedAgentID else {
+                return
+            }
+            persistDraftIfNeeded()
+            persistSelectedAgentToSettingsIfNeeded()
+        }
     }
     @Published var promptTemplate: String = AppSettings.defaultPrompt {
         didSet { persistDraftIfNeeded() }
@@ -556,6 +575,13 @@ final class GenerateViewModel: ObservableObject {
         } catch {
             validationMessage = error.localizedDescription
         }
+    }
+
+    private func persistSelectedAgentToSettingsIfNeeded() {
+        guard !isRestoringWorkspace else {
+            return
+        }
+        settingsViewModel.updateSelectedAgent(selectedAgentID)
     }
 }
 
