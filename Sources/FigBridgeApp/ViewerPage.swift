@@ -30,6 +30,9 @@ struct ViewerPage: View {
                             viewerActionButton("打开目录", systemImage: "folder") {
                                 viewModel.openSelectedBatchInFinder()
                             }
+                            viewerActionButton("打开导出目录", systemImage: "folder.badge.gearshape") {
+                                viewModel.openSelectedBatchExportsDirectoryInFinder()
+                            }
                             viewerActionButton("删除批次", systemImage: "trash") {
                                 viewModel.deleteSelectedBatch()
                             }
@@ -53,6 +56,9 @@ struct ViewerPage: View {
                             }
                             Button("打开目录", systemImage: "folder") {
                                 viewModel.openSelectedBatchInFinder()
+                            }
+                            Button("打开导出目录", systemImage: "folder.badge.gearshape") {
+                                viewModel.openSelectedBatchExportsDirectoryInFinder()
                             }
                             Button("删除批次", systemImage: "trash") {
                                 viewModel.deleteSelectedBatch()
@@ -129,7 +135,7 @@ struct ViewerPage: View {
                         .font(.title3.bold())
                     Text("输出目录")
                         .font(.headline)
-                    Text(batch.summary.outputDirectory)
+                    Text(viewModel.selectedBatchExportsDirectory?.path ?? batch.summary.outputDirectory)
                         .font(.caption)
                         .textSelection(.enabled)
                     Text("原始输入")

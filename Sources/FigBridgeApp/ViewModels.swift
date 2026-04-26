@@ -73,12 +73,6 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    func chooseDefaultOutputDirectory() {
-        if let selectedURL = DesktopSupport.chooseDirectory(canCreateDirectories: true) {
-            settings.outputDirectoryPath = selectedURL.path
-        }
-    }
-
     func updateSelectedAgent(_ selectedAgentID: String?) {
         guard settings.selectedAgentID != selectedAgentID else {
             return
@@ -109,7 +103,12 @@ final class GenerateViewModel: ObservableObject {
         didSet { persistDraftIfNeeded() }
     }
     @Published var outputDirectoryPath: String = "" {
-        didSet { persistDraftIfNeeded() }
+        didSet {
+            guard !isSynchronizingOutputDirectory else {
+                return
+            }
+            persistDraftIfNeeded()
+        }
     }
     @Published var mode: GenerationMode = .sequential {
         didSet { persistDraftIfNeeded() }
@@ -167,6 +166,7 @@ final class GenerateViewModel: ObservableObject {
     private var bootstrapped = false
     private var generationTask: Task<PersistedBatch, Error>?
     private var isRestoringWorkspace = false
+    private var isSynchronizingOutputDirectory = false
     private var resourceLoadTasks: [UUID: Task<Void, Never>] = [:]
     private var runLogsByItemID: [UUID: GenerationRunLog] = [:]
     private var sharedRunLogIDByBatchKey: [String: String] = [:]
@@ -198,7 +198,6 @@ final class GenerateViewModel: ObservableObject {
         !isGenerating
         && selectedAgentID != nil
         && !promptTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && !outputDirectoryPath.isEmpty
         && !pendingItems.isEmpty
     }
 
@@ -266,7 +265,7 @@ final class GenerateViewModel: ObservableObject {
 
     func generate() async {
         guard canGenerate else {
-            validationMessage = "请先完成 agent、prompt、输出目录和链接校验"
+            validationMessage = "请先完成 agent、prompt 和链接校验"
             return
         }
         guard let selectedAgentID,
@@ -291,11 +290,12 @@ final class GenerateViewModel: ObservableObject {
         }
 
         let task = Task<PersistedBatch, Error> {
-            try await generationCoordinator.generate(
+            let resolvedOutputDirectory = await MainActor.run { self.resolvedOutputDirectoryForGeneration() }
+            return try await generationCoordinator.generate(
                 agent: provider,
                 promptTemplate: promptTemplate,
                 sourceInputText: inputText,
-                outputDirectory: URL(fileURLWithPath: outputDirectoryPath, isDirectory: true),
+                outputDirectory: resolvedOutputDirectory,
                 mode: mode,
                 parallelism: parallelism,
                 callStrategy: callStrategy,
@@ -339,6 +339,7 @@ final class GenerateViewModel: ObservableObject {
             items = persisted.summary.items
             currentBatchID = persisted.summary.id
             currentBatchDirectory = persisted.batchDirectory.path
+            syncOutputDirectoryPath()
             loadSelectedYAML()
             refreshSelectedRunLog()
             validationMessage = "生成完成"
@@ -380,12 +381,6 @@ final class GenerateViewModel: ObservableObject {
         loadSelectedYAML()
         refreshSelectedRunLog()
         persistDraftIfNeeded()
-    }
-
-    func chooseOutputDirectory() {
-        if let selectedURL = DesktopSupport.chooseDirectory(canCreateDirectories: true) {
-            outputDirectoryPath = selectedURL.path
-        }
     }
 
     func loadSelectedItemPreviewIfNeeded() async {
@@ -519,7 +514,6 @@ final class GenerateViewModel: ObservableObject {
         isRestoringWorkspace = true
         selectedAgentID = persisted.summary.agent.id
         promptTemplate = persisted.summary.promptSnapshot
-        outputDirectoryPath = persisted.summary.outputDirectory
         mode = persisted.summary.mode
         parallelism = persisted.summary.parallelism
         callStrategy = persisted.summary.callStrategy
@@ -528,6 +522,7 @@ final class GenerateViewModel: ObservableObject {
         selectedItemID = persisted.summary.items.first?.id
         currentBatchID = persisted.summary.id
         currentBatchDirectory = persisted.batchDirectory.path
+        syncOutputDirectoryPath()
         validationMessage = ""
         exportMessage = ""
         progressText = ""
@@ -601,16 +596,15 @@ final class GenerateViewModel: ObservableObject {
     private func applyDefaultWorkspaceSettings() {
         selectedAgentID = settingsViewModel.settings.selectedAgentID
         promptTemplate = settingsViewModel.settings.promptTemplate
-        outputDirectoryPath = settingsViewModel.settings.outputDirectoryPath ?? batchStore.rootDirectory.path
         mode = settingsViewModel.settings.defaultGenerationMode
         parallelism = settingsViewModel.settings.parallelism
         callStrategy = settingsViewModel.settings.defaultAgentCallStrategy
+        syncOutputDirectoryPath()
     }
 
     private func applyWorkspaceDraft(_ draft: GenerateWorkspaceDraft) {
         selectedAgentID = draft.selectedAgentID
         promptTemplate = draft.promptTemplate
-        outputDirectoryPath = draft.outputDirectoryPath
         mode = draft.mode
         parallelism = draft.parallelism
         callStrategy = draft.callStrategy
@@ -619,6 +613,7 @@ final class GenerateViewModel: ObservableObject {
         selectedItemID = draft.selectedItemID
         currentBatchID = draft.currentBatchID
         currentBatchDirectory = draft.currentBatchDirectory
+        syncOutputDirectoryPath()
         loadSelectedYAML()
     }
 
@@ -713,7 +708,8 @@ final class GenerateViewModel: ObservableObject {
         items[index].errorMessage = nil
 
         do {
-            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], token: token)
+            let itemDirectory = resolvedItemDirectory(for: items[index])
+            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], itemDirectory: itemDirectory, token: token)
             guard !Task.isCancelled else {
                 return
             }
@@ -744,6 +740,39 @@ final class GenerateViewModel: ObservableObject {
             task.cancel()
         }
         resourceLoadTasks.removeAll()
+    }
+
+    private func resolvedOutputDirectoryForGeneration() -> URL {
+        if let currentBatchID {
+            return batchStore.exportsDirectory(forBatchID: currentBatchID)
+        }
+        return batchStore.rootDirectory
+    }
+
+    private func syncOutputDirectoryPath() {
+        isSynchronizingOutputDirectory = true
+        if let currentBatchDirectory {
+            outputDirectoryPath = batchStore.exportsDirectory(for: URL(fileURLWithPath: currentBatchDirectory, isDirectory: true)).path
+        } else if let currentBatchID {
+            outputDirectoryPath = batchStore.exportsDirectory(forBatchID: currentBatchID).path
+        } else {
+            outputDirectoryPath = "当前批次/exports"
+        }
+        isSynchronizingOutputDirectory = false
+    }
+
+    private func resolvedItemDirectory(for item: FigmaLinkItem) -> URL {
+        let batchDirectory: URL
+        if let currentBatchDirectory {
+            batchDirectory = URL(fileURLWithPath: currentBatchDirectory, isDirectory: true)
+        } else if let currentBatchID {
+            batchDirectory = batchStore.batchDirectory(for: currentBatchID)
+        } else {
+            batchDirectory = batchStore.rootDirectory.appendingPathComponent("__workspace__", isDirectory: true)
+        }
+        return batchDirectory
+            .appendingPathComponent("items", isDirectory: true)
+            .appendingPathComponent("\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
     }
 }
 
@@ -804,6 +833,13 @@ final class ViewerViewModel: ObservableObject {
             return false
         }
         return batch.summary.items.contains { $0.generatedYAMLPath != nil }
+    }
+
+    var selectedBatchExportsDirectory: URL? {
+        guard let batch = selectedBatch else {
+            return nil
+        }
+        return batch.batchDirectory.appendingPathComponent(BatchStore.exportsDirectoryName, isDirectory: true)
     }
 
     func reload() {
@@ -872,6 +908,14 @@ final class ViewerViewModel: ObservableObject {
             return
         }
         DesktopSupport.openInFinder(batch.batchDirectory)
+    }
+
+    func openSelectedBatchExportsDirectoryInFinder() {
+        guard let exportsDirectory = selectedBatchExportsDirectory else {
+            return
+        }
+        try? FileManager.default.createDirectory(at: exportsDirectory, withIntermediateDirectories: true)
+        DesktopSupport.openInFinder(exportsDirectory)
     }
 
     func deleteSelectedBatch() {

@@ -161,6 +161,53 @@ struct AgentServiceTests {
         })
         #expect(events.contains(.finished(status: 0)))
     }
+
+    @Test func timesOutLongRunningAgentProcess() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let claudePath = sandbox.root.appendingPathComponent("claude")
+        try makeExecutable(
+            at: claudePath,
+            body: """
+            #!/bin/sh
+            sleep 5
+            echo "$2"
+            """
+        )
+
+        let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
+        let service = AgentService(shellClient: shell, executionTimeout: 0.1)
+
+        await #expect(throws: AgentServiceError.self) {
+            _ = try await service.run(provider: .claude, prompt: "hello")
+        }
+    }
+
+    @Test func runStreamingClosesStandardInputSoProcessCanFinish() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let scriptPath = sandbox.root.appendingPathComponent("stdin-agent")
+        try makeExecutable(
+            at: scriptPath,
+            body: """
+            #!/bin/sh
+            cat >/dev/null
+            printf 'done\\n'
+            exit 0
+            """
+        )
+
+        let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
+        let start = Date()
+        let result = try await shell.runStreaming(executable: scriptPath, arguments: [], timeout: 1, onEvent: nil)
+        let elapsed = Date().timeIntervalSince(start)
+
+        #expect(result.status == 0)
+        #expect(result.stdout.contains("done"))
+        #expect(elapsed < 1.0)
+    }
 }
 
 private actor ShellEventRecorder {

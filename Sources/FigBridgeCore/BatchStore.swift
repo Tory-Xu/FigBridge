@@ -5,6 +5,8 @@ public final class BatchStore: Sendable {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
+    public static let exportsDirectoryName = "exports"
+
     public init(rootDirectory: URL) {
         self.rootDirectory = rootDirectory
         encoder = JSONEncoder()
@@ -20,8 +22,20 @@ public final class BatchStore: Sendable {
         return try writeBatch(batch, into: batchDirectory)
     }
 
+    public func batchDirectory(for id: String) -> URL {
+        rootDirectory.appendingPathComponent(id, isDirectory: true)
+    }
+
+    public func exportsDirectory(forBatchID id: String) -> URL {
+        exportsDirectory(for: batchDirectory(for: id))
+    }
+
+    public func exportsDirectory(for batchDirectory: URL) -> URL {
+        batchDirectory.appendingPathComponent(Self.exportsDirectoryName, isDirectory: true)
+    }
+
     public func loadBatch(id: String) throws -> PersistedBatch? {
-        let batchDirectory = rootDirectory.appendingPathComponent(id, isDirectory: true)
+        let batchDirectory = batchDirectory(for: id)
         guard FileManager.default.fileExists(atPath: batchDirectory.appendingPathComponent("batch.json").path) else {
             return nil
         }
@@ -39,7 +53,7 @@ public final class BatchStore: Sendable {
         callStrategy: AgentCallStrategy,
         items: [FigmaLinkItem]
     ) throws -> PersistedBatch {
-        let batchDirectory = rootDirectory.appendingPathComponent(id, isDirectory: true)
+        let batchDirectory = batchDirectory(for: id)
         guard FileManager.default.fileExists(atPath: batchDirectory.appendingPathComponent("batch.json").path) else {
             throw BatchStoreError.invalidBatchDirectory
         }
@@ -300,6 +314,7 @@ public final class BatchStore: Sendable {
     private func writeBatch(_ batch: GenerationBatch, into batchDirectory: URL) throws -> PersistedBatch {
         let sourceInputURL = batchDirectory.appendingPathComponent("source-input.txt")
         try batch.sourceInputText.write(to: sourceInputURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: exportsDirectory(for: batchDirectory), withIntermediateDirectories: true)
 
         let itemsDirectory = batchDirectory.appendingPathComponent("items", isDirectory: true)
         try FileManager.default.createDirectory(at: itemsDirectory, withIntermediateDirectories: true)
@@ -316,22 +331,22 @@ public final class BatchStore: Sendable {
             let itemDirectory = itemsDirectory.appendingPathComponent(directoryName(for: item), isDirectory: true)
             try FileManager.default.createDirectory(at: itemDirectory, withIntermediateDirectories: true)
             let metaURL = itemDirectory.appendingPathComponent("meta.json")
-            let data = try encoder.encode(item)
+            let data = try encoder.encode(makePersistable(item: item, batchDirectory: batchDirectory))
             try data.write(to: metaURL)
             itemDirectories.append(itemDirectory)
         }
 
         let batchURL = batchDirectory.appendingPathComponent("batch.json")
-        let batchData = try encoder.encode(batch)
+        let batchData = try encoder.encode(makePersistable(batch: batch, batchDirectory: batchDirectory))
         try batchData.write(to: batchURL)
 
-        return PersistedBatch(summary: batch, batchDirectory: batchDirectory, itemDirectories: itemDirectories)
+        return PersistedBatch(summary: makeRuntimeBatch(from: batch, batchDirectory: batchDirectory), batchDirectory: batchDirectory, itemDirectories: itemDirectories)
     }
 
     private func loadBatch(at directory: URL) throws -> PersistedBatch {
         let batchURL = directory.appendingPathComponent("batch.json")
         let data = try Data(contentsOf: batchURL)
-        let batch = try decoder.decode(GenerationBatch.self, from: data)
+        let batch = makeRuntimeBatch(from: try decoder.decode(GenerationBatch.self, from: data), batchDirectory: directory)
         let itemDirectories = batch.items.compactMap { itemDirectory(in: directory, itemID: $0.id) }
         return PersistedBatch(summary: batch, batchDirectory: directory, itemDirectories: itemDirectories)
     }
@@ -354,6 +369,72 @@ public final class BatchStore: Sendable {
         }
         let prefix = itemID.uuidString.lowercased()
         return entries.first(where: { $0.lastPathComponent.hasPrefix(prefix) })
+    }
+
+    private func makePersistable(batch: GenerationBatch, batchDirectory: URL) -> GenerationBatch {
+        var persisted = batch
+        persisted.outputDirectory = relativizePath(batch.outputDirectory, batchDirectory: batchDirectory) ?? Self.exportsDirectoryName
+        persisted.items = batch.items.map { makePersistable(item: $0, batchDirectory: batchDirectory) }
+        return persisted
+    }
+
+    private func makePersistable(item: FigmaLinkItem, batchDirectory: URL) -> FigmaLinkItem {
+        var persisted = item
+        persisted.previewImagePath = relativizePath(item.previewImagePath, batchDirectory: batchDirectory)
+        persisted.generatedYAMLPath = relativizePath(item.generatedYAMLPath, batchDirectory: batchDirectory)
+        persisted.agentOutputPath = relativizePath(item.agentOutputPath, batchDirectory: batchDirectory)
+        persisted.resourceItems = item.resourceItems.map { resource in
+            var updated = resource
+            updated.localPath = relativizePath(resource.localPath, batchDirectory: batchDirectory)
+            return updated
+        }
+        return persisted
+    }
+
+    private func makeRuntimeBatch(from batch: GenerationBatch, batchDirectory: URL) -> GenerationBatch {
+        var runtime = batch
+        runtime.outputDirectory = absolutizePath(batch.outputDirectory, batchDirectory: batchDirectory) ?? exportsDirectory(for: batchDirectory).path
+        runtime.items = batch.items.map { makeRuntimeItem(from: $0, batchDirectory: batchDirectory) }
+        return runtime
+    }
+
+    private func makeRuntimeItem(from item: FigmaLinkItem, batchDirectory: URL) -> FigmaLinkItem {
+        var runtime = item
+        runtime.previewImagePath = absolutizePath(item.previewImagePath, batchDirectory: batchDirectory)
+        runtime.generatedYAMLPath = absolutizePath(item.generatedYAMLPath, batchDirectory: batchDirectory)
+        runtime.agentOutputPath = absolutizePath(item.agentOutputPath, batchDirectory: batchDirectory)
+        runtime.resourceItems = item.resourceItems.map { resource in
+            var updated = resource
+            updated.localPath = absolutizePath(resource.localPath, batchDirectory: batchDirectory)
+            return updated
+        }
+        return runtime
+    }
+
+    private func relativizePath(_ path: String?, batchDirectory: URL) -> String? {
+        guard let path else {
+            return nil
+        }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let basePath = batchDirectory.standardizedFileURL.path
+        guard standardizedPath == basePath || standardizedPath.hasPrefix(basePath + "/") else {
+            return path
+        }
+        let relative = String(standardizedPath.dropFirst(basePath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? "." : relative
+    }
+
+    private func absolutizePath(_ path: String?, batchDirectory: URL) -> String? {
+        guard let path, !path.isEmpty else {
+            return nil
+        }
+        if path == "." {
+            return batchDirectory.path
+        }
+        if path.hasPrefix("/") {
+            return path
+        }
+        return batchDirectory.appendingPathComponent(path).path
     }
 }
 

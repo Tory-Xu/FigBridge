@@ -259,6 +259,29 @@ struct ViewerViewModelTests {
         #expect(receivedBatchID == persisted.summary.id)
     }
 
+    @Test func selectedBatchExportsDirectoryUsesFixedBatchSubdirectory() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+
+        let exportsDirectory = try #require(viewModel.selectedBatchExportsDirectory)
+        let expectedDirectory = sandbox.root.appendingPathComponent("batch-1", isDirectory: true).appendingPathComponent("exports", isDirectory: true)
+        #expect(exportsDirectory.standardizedFileURL.path == expectedDirectory.standardizedFileURL.path)
+    }
+
     private func makePersistedBatch(
         store: BatchStore,
         id: String,

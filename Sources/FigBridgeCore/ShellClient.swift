@@ -45,6 +45,7 @@ public struct ShellClient: Sendable {
     public func runStreaming(
         executable: URL,
         arguments: [String],
+        timeout: TimeInterval? = nil,
         onEvent: (@Sendable (ShellEvent) async -> Void)?
     ) async throws -> ShellResult {
         try await withCheckedThrowingContinuation { continuation in
@@ -53,12 +54,15 @@ public struct ShellClient: Sendable {
             task.arguments = arguments
             task.environment = runtimeEnvironment()
 
+            let stdinHandle = FileHandle(forReadingAtPath: "/dev/null")
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
+            task.standardInput = stdinHandle
             task.standardOutput = stdoutPipe
             task.standardError = stderrPipe
             let stdoutCollector = StreamCollector()
             let stderrCollector = StreamCollector()
+            let resumeBox = ContinuationResumeBox()
 
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
@@ -95,8 +99,9 @@ public struct ShellClient: Sendable {
                 task.terminationHandler = { process in
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    let stdoutTail = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    let stderrTail = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    try? stdinHandle?.close()
+                    let stdoutTail = stdoutPipe.fileHandleForReading.availableData
+                    let stderrTail = stderrPipe.fileHandleForReading.availableData
                     stdoutCollector.append(data: stdoutTail)
                     stderrCollector.append(data: stderrTail)
                     if let text = String(data: stdoutTail, encoding: .utf8), !text.isEmpty, let onEvent {
@@ -114,10 +119,23 @@ public struct ShellClient: Sendable {
                             await onEvent(.finished(status: process.terminationStatus))
                         }
                     }
-                    continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdoutCollector.fullText(), stderr: stderrCollector.fullText()))
+                    resumeBox.resume {
+                        continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdoutCollector.fullText(), stderr: stderrCollector.fullText()))
+                    }
+                }
+                if let timeout, timeout > 0 {
+                    Task.detached {
+                        try? await Task.sleep(for: .seconds(timeout))
+                        guard task.isRunning else {
+                            return
+                        }
+                        task.terminate()
+                    }
                 }
             } catch {
-                continuation.resume(throwing: error)
+                resumeBox.resume {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
@@ -202,5 +220,20 @@ private final class StreamCollector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return String(data: buffer, encoding: .utf8) ?? ""
+    }
+}
+
+private final class ContinuationResumeBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didResume = false
+
+    func resume(_ body: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else {
+            return
+        }
+        didResume = true
+        body()
     }
 }

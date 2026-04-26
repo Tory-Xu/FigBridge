@@ -94,8 +94,9 @@ struct FigmaServiceTests {
             fileKey: "FILE123",
             nodeId: "1:2"
         )
+        let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
 
         #expect(resolved.nodeName == "Login Card")
         #expect(resolved.previewStatus == .success)
@@ -103,6 +104,8 @@ struct FigmaServiceTests {
         #expect(resolved.previewImagePath != nil)
         #expect(resolved.resourceItems.count == 2)
         #expect(resolved.resourceItems.allSatisfy { $0.localPath != nil })
+        #expect(resolved.previewImagePath?.contains("/items/item-1/assets/preview.png") == true)
+        #expect(resolved.resourceItems.allSatisfy { $0.localPath?.contains("/items/item-1/assets/") == true })
     }
 
     @Test func allowsPreviewFailureWithoutBlockingResources() async throws {
@@ -155,8 +158,9 @@ struct FigmaServiceTests {
             fileKey: "FILE123",
             nodeId: "1:2"
         )
+        let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
 
         #expect(resolved.previewStatus == .failed)
         #expect(resolved.resourceStatus == .success)
@@ -212,8 +216,9 @@ struct FigmaServiceTests {
             fileKey: "FILE123",
             nodeId: "1:2"
         )
+        let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
 
         #expect(resolved.previewStatus == .success)
         #expect(resolved.resourceStatus == .success)

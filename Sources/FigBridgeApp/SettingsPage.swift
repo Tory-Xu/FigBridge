@@ -10,13 +10,6 @@ struct SettingsPage: View {
             TextEditor(text: $viewModel.settings.promptTemplate)
                 .font(.body.monospaced())
                 .frame(minHeight: 160)
-            TextField("默认输出目录", text: Binding(
-                get: { viewModel.settings.outputDirectoryPath ?? "" },
-                set: { viewModel.settings.outputDirectoryPath = $0.isEmpty ? nil : $0 }
-            ))
-            Button("选择默认输出目录") {
-                viewModel.chooseDefaultOutputDirectory()
-            }
             Picker("默认导出格式", selection: $viewModel.settings.defaultExportFormat) {
                 Text("PNG").tag(ExportFormat.png)
                 Text("SVG").tag(ExportFormat.svg)

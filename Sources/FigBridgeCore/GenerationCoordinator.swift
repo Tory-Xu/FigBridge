@@ -45,8 +45,10 @@ public struct GenerationCoordinator: Sendable {
     ) async throws -> PersistedBatch {
         let existingBatch = try existingBatchID.flatMap { try batchStore.loadBatch(id: $0) }
         let batchID = existingBatch?.summary.id ?? BatchNaming.makeBatchID()
-        let batchDirectory = outputDirectory.appendingPathComponent(batchID, isDirectory: true)
+        let batchDirectory = batchStore.batchDirectory(for: batchID)
+        let exportsDirectory = batchStore.exportsDirectory(for: batchDirectory)
         try FileManager.default.createDirectory(at: batchDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: exportsDirectory, withIntermediateDirectories: true)
 
         let pendingItems = items.filter { $0.generatedYAMLPath == nil }
         let resolvedPendingItems: [FigmaLinkItem]
@@ -73,7 +75,7 @@ public struct GenerationCoordinator: Sendable {
                 agent: agent,
                 promptSnapshot: promptTemplate,
                 sourceInputText: sourceInputText,
-                outputDirectory: outputDirectory.path,
+                outputDirectory: exportsDirectory.path,
                 mode: mode,
                 parallelism: parallelism,
                 callStrategy: callStrategy,
@@ -87,7 +89,7 @@ public struct GenerationCoordinator: Sendable {
             sourceInputText: sourceInputText,
             agent: agent,
             promptSnapshot: promptTemplate,
-            outputDirectory: outputDirectory,
+            outputDirectory: exportsDirectory,
             mode: mode,
             parallelism: parallelism,
             callStrategy: callStrategy,

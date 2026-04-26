@@ -4,6 +4,7 @@ public enum AgentServiceError: LocalizedError {
     case executableNotFound(String)
     case executionFailed(String)
     case emptyOutput
+    case executionTimedOut(TimeInterval)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ public enum AgentServiceError: LocalizedError {
             message
         case .emptyOutput:
             "agent 输出为空"
+        case .executionTimedOut(let seconds):
+            "agent 执行超时（\(Int(seconds)) 秒）"
         }
     }
 }
@@ -35,9 +38,11 @@ public struct AgentRunResult: Sendable {
 
 public struct AgentService: Sendable {
     public let shellClient: ShellClient
+    public let executionTimeout: TimeInterval
 
-    public init(shellClient: ShellClient = ShellClient()) {
+    public init(shellClient: ShellClient = ShellClient(), executionTimeout: TimeInterval = 300) {
         self.shellClient = shellClient
+        self.executionTimeout = executionTimeout
     }
 
     public func detectAvailableAgents() async throws -> [AgentDescriptor] {
@@ -87,7 +92,7 @@ public struct AgentService: Sendable {
             await eventHandler(.started(executablePath: executable.path, arguments: arguments, isSharedLog: false))
         }
 
-        let result = try await shellClient.runStreaming(executable: executable, arguments: arguments) { event in
+        let result = try await shellClient.runStreaming(executable: executable, arguments: arguments, timeout: executionTimeout) { event in
             guard let eventHandler else {
                 return
             }
@@ -101,6 +106,12 @@ public struct AgentService: Sendable {
             case .finished(let status):
                 await eventHandler(.finished(exitCode: status))
             }
+        }
+        if result.status == SIGTERM {
+            if let eventHandler {
+                await eventHandler(.failed(message: AgentServiceError.executionTimedOut(executionTimeout).localizedDescription))
+            }
+            throw AgentServiceError.executionTimedOut(executionTimeout)
         }
         guard result.status == 0 else {
             if let eventHandler {

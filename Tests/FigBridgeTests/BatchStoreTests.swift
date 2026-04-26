@@ -3,6 +3,73 @@ import Testing
 @testable import FigBridgeCore
 
 struct BatchStoreTests {
+    @Test func persistedBatchStoresRelativePathsAndReloadsAbsolutePaths() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let batchDirectory = sandbox.root.appendingPathComponent("batch-1", isDirectory: true)
+        let itemDirectory = batchDirectory.appendingPathComponent("items/item-1-1-2", isDirectory: true)
+        let yamlDirectory = itemDirectory.appendingPathComponent("yaml", isDirectory: true)
+        let assetsDirectory = itemDirectory.appendingPathComponent("assets", isDirectory: true)
+        let exportsDirectory = batchDirectory.appendingPathComponent("exports", isDirectory: true)
+        try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: exportsDirectory, withIntermediateDirectories: true)
+
+        let previewURL = assetsDirectory.appendingPathComponent("preview.png")
+        let resourceURL = assetsDirectory.appendingPathComponent("1-image.png")
+        let yamlURL = yamlDirectory.appendingPathComponent("figma-node-1-2.yaml")
+        let outputURL = yamlDirectory.appendingPathComponent("agent-output.txt")
+        try Data("preview".utf8).write(to: previewURL)
+        try Data("resource".utf8).write(to: resourceURL)
+        try "yaml".write(to: yamlURL, atomically: true, encoding: .utf8)
+        try "output".write(to: outputURL, atomically: true, encoding: .utf8)
+
+        var item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        item.previewImagePath = previewURL.path
+        item.generatedYAMLPath = yamlURL.path
+        item.agentOutputPath = outputURL.path
+        item.resourceItems = [
+            FigmaResourceItem(name: "image", kind: .image, format: .png, remoteURL: "https://cdn.example/image.png", localPath: resourceURL.path)
+        ]
+
+        let batch = GenerationBatch(
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: exportsDirectory.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item]
+        )
+
+        _ = try store.createBatch(batch)
+
+        let batchJSON = try String(contentsOf: batchDirectory.appendingPathComponent("batch.json"), encoding: .utf8)
+        #expect(batchJSON.contains("\"outputDirectory\" : \"exports\""))
+        #expect(!batchJSON.contains(exportsDirectory.path))
+        #expect(batchJSON.contains("items\\/item-1-1-2\\/yaml\\/figma-node-1-2.yaml"))
+        #expect(batchJSON.contains("items\\/item-1-1-2\\/assets\\/preview.png"))
+
+        let loaded = try #require(try store.loadBatch(id: "batch-1"))
+        let loadedItem = try #require(loaded.summary.items.first)
+        #expect(loaded.summary.outputDirectory == exportsDirectory.path)
+        #expect(loadedItem.previewImagePath == previewURL.path)
+        #expect(loadedItem.generatedYAMLPath == yamlURL.path)
+        #expect(loadedItem.agentOutputPath == outputURL.path)
+        #expect(loadedItem.resourceItems.first?.localPath == resourceURL.path)
+    }
+
     @Test func createsBatchStructureAndCanRescan() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

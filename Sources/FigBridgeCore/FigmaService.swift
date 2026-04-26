@@ -58,10 +58,10 @@ public actor FigmaService {
         _ = try await performJSONRequest(request)
     }
 
-    public func loadPreviewAndResources(for item: FigmaLinkItem, token: String) async throws -> FigmaLinkItem {
+    public func loadPreviewAndResources(for item: FigmaLinkItem, itemDirectory: URL, token: String) async throws -> FigmaLinkItem {
         let normalizedToken = try normalizedToken(token)
         let payload = try await fetchNodePayload(fileKey: item.fileKey, nodeId: item.nodeId, token: normalizedToken)
-        return try await cachePayload(payload, for: item, token: normalizedToken)
+        return try await cachePayload(payload, for: item, itemDirectory: itemDirectory, token: normalizedToken)
     }
 
     private func fetchNodePayload(fileKey: String, nodeId: String, token: String) async throws -> FigmaNodePayload {
@@ -117,11 +117,8 @@ public actor FigmaService {
         )
     }
 
-    private func cachePayload(_ payload: FigmaNodePayload, for item: FigmaLinkItem, token: String) async throws -> FigmaLinkItem {
-        let cacheDirectory = baseDirectory
-            .appendingPathComponent("Cache", isDirectory: true)
-            .appendingPathComponent(item.fileKey, isDirectory: true)
-            .appendingPathComponent(item.nodeId.replacingOccurrences(of: ":", with: "-"), isDirectory: true)
+    private func cachePayload(_ payload: FigmaNodePayload, for item: FigmaLinkItem, itemDirectory: URL, token: String) async throws -> FigmaLinkItem {
+        let cacheDirectory = itemDirectory.appendingPathComponent("assets", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
 
         var resolved = item

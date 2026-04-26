@@ -19,11 +19,13 @@ struct GeneratePage: View {
                 TextEditor(text: $viewModel.promptTemplate)
                     .font(.body.monospaced())
                     .frame(minHeight: 140)
-                HStack {
-                    TextField("输出目录", text: $viewModel.outputDirectoryPath)
-                    Button("选择") {
-                        viewModel.chooseOutputDirectory()
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("输出目录")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.outputDirectoryPath)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
                 }
                 Picker("模式", selection: $viewModel.mode) {
                     Text("逐个").tag(GenerationMode.sequential)

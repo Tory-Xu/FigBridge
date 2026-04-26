@@ -270,7 +270,7 @@ struct GenerateViewModelTests {
 
         #expect(restoredHarness.viewModel.selectedAgentID == AgentProvider.codex.id)
         #expect(restoredHarness.viewModel.promptTemplate == "draft prompt")
-        #expect(restoredHarness.viewModel.outputDirectoryPath == draft.outputDirectoryPath)
+        #expect(restoredHarness.viewModel.outputDirectoryPath == sandbox.root.appendingPathComponent("batch-draft", isDirectory: true).appendingPathComponent("exports", isDirectory: true).path)
         #expect(restoredHarness.viewModel.mode == .parallel)
         #expect(restoredHarness.viewModel.parallelism == 4)
         #expect(restoredHarness.viewModel.callStrategy == .singleForBatch)
@@ -337,6 +337,7 @@ struct GenerateViewModelTests {
 
         #expect(harness.viewModel.currentBatchID == "batch-1")
         #expect(harness.viewModel.currentBatchDirectory == persisted.batchDirectory.path)
+        #expect(harness.viewModel.outputDirectoryPath == persisted.batchDirectory.appendingPathComponent("exports", isDirectory: true).path)
         #expect(harness.viewModel.promptTemplate == "batch prompt")
         #expect(harness.viewModel.inputText == "batch input")
         #expect(harness.viewModel.mode == .parallel)
@@ -441,6 +442,27 @@ struct GenerateViewModelTests {
         #expect(firstLog.isShared)
         #expect(secondLog.isShared)
         #expect(secondLog.combinedConsoleText.contains("shared-batch-line"))
+    }
+
+    @Test func generateUsesFixedExportsDirectoryInsideBatch() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.items = [item]
+        harness.viewModel.outputDirectoryPath = "/tmp/should-not-be-used"
+
+        await harness.viewModel.generate()
+
+        let batchID = try #require(harness.viewModel.currentBatchID)
+        let batchDirectory = sandbox.root.appendingPathComponent(batchID, isDirectory: true)
+        let exportsDirectory = batchDirectory.appendingPathComponent("exports", isDirectory: true)
+        #expect(harness.viewModel.outputDirectoryPath == exportsDirectory.path)
+
+        let persisted = try #require(try harness.batchStore.loadBatch(id: batchID))
+        #expect(persisted.summary.outputDirectory == exportsDirectory.path)
+        #expect(FileManager.default.fileExists(atPath: batchDirectory.path))
     }
 }
 
