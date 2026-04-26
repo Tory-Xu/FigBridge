@@ -32,6 +32,20 @@ public enum GenerationMode: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public enum AgentCallStrategy: String, Codable, CaseIterable, Sendable {
+    case singlePerLink
+    case singleForBatch
+
+    public var displayName: String {
+        switch self {
+        case .singlePerLink:
+            "单链接调用"
+        case .singleForBatch:
+            "多链接单次调用"
+        }
+    }
+}
+
 public enum ExportFormat: String, Codable, CaseIterable, Sendable {
     case png
     case svg
@@ -61,6 +75,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var defaultExportFormat: ExportFormat
     public var defaultGenerationMode: GenerationMode
     public var parallelism: Int
+    public var defaultAgentCallStrategy: AgentCallStrategy
+
+    enum CodingKeys: String, CodingKey {
+        case selectedAgentID
+        case promptTemplate
+        case outputDirectoryPath
+        case figmaToken
+        case defaultExportFormat
+        case defaultGenerationMode
+        case parallelism
+        case defaultAgentCallStrategy
+    }
 
     public init(
         selectedAgentID: String? = nil,
@@ -69,7 +95,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         figmaToken: String,
         defaultExportFormat: ExportFormat,
         defaultGenerationMode: GenerationMode,
-        parallelism: Int
+        parallelism: Int,
+        defaultAgentCallStrategy: AgentCallStrategy = .singlePerLink
     ) {
         self.selectedAgentID = selectedAgentID
         self.promptTemplate = promptTemplate
@@ -78,6 +105,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.defaultExportFormat = defaultExportFormat
         self.defaultGenerationMode = defaultGenerationMode
         self.parallelism = parallelism
+        self.defaultAgentCallStrategy = defaultAgentCallStrategy
     }
 
     public static let defaultPrompt = """
@@ -91,8 +119,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
         figmaToken: "",
         defaultExportFormat: .png,
         defaultGenerationMode: .sequential,
-        parallelism: 2
+        parallelism: 2,
+        defaultAgentCallStrategy: .singlePerLink
     )
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedAgentID = try container.decodeIfPresent(String.self, forKey: .selectedAgentID)
+        promptTemplate = try container.decode(String.self, forKey: .promptTemplate)
+        outputDirectoryPath = try container.decodeIfPresent(String.self, forKey: .outputDirectoryPath)
+        figmaToken = try container.decode(String.self, forKey: .figmaToken)
+        defaultExportFormat = try container.decode(ExportFormat.self, forKey: .defaultExportFormat)
+        defaultGenerationMode = try container.decode(GenerationMode.self, forKey: .defaultGenerationMode)
+        parallelism = try container.decodeIfPresent(Int.self, forKey: .parallelism) ?? AppSettings.defaultValue.parallelism
+        defaultAgentCallStrategy = try container.decodeIfPresent(AgentCallStrategy.self, forKey: .defaultAgentCallStrategy) ?? .singlePerLink
+    }
 }
 
 public struct AgentDescriptor: Codable, Equatable, Identifiable, Sendable {
@@ -206,6 +247,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
     public var outputDirectory: String
     public var mode: GenerationMode
     public var parallelism: Int
+    public var callStrategy: AgentCallStrategy
     public var items: [FigmaLinkItem]
 
     enum CodingKeys: String, CodingKey {
@@ -217,6 +259,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         case outputDirectory
         case mode
         case parallelism
+        case callStrategy
         case items
     }
 
@@ -229,6 +272,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         outputDirectory: String,
         mode: GenerationMode,
         parallelism: Int,
+        callStrategy: AgentCallStrategy = .singlePerLink,
         items: [FigmaLinkItem]
     ) {
         self.id = id
@@ -239,6 +283,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         self.outputDirectory = outputDirectory
         self.mode = mode
         self.parallelism = parallelism
+        self.callStrategy = callStrategy
         self.items = items
     }
 
@@ -252,6 +297,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
         mode = try container.decode(GenerationMode.self, forKey: .mode)
         parallelism = try container.decodeIfPresent(Int.self, forKey: .parallelism) ?? AppSettings.defaultValue.parallelism
+        callStrategy = try container.decodeIfPresent(AgentCallStrategy.self, forKey: .callStrategy) ?? .singlePerLink
         items = try container.decode([FigmaLinkItem].self, forKey: .items)
     }
 }

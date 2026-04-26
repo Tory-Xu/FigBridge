@@ -144,6 +144,7 @@ struct ViewerViewModelTests {
             outputDirectory: URL(fileURLWithPath: initial.summary.outputDirectory, isDirectory: true),
             mode: initial.summary.mode,
             parallelism: initial.summary.parallelism,
+            callStrategy: .singlePerLink,
             items: initial.summary.items + [newItem]
         )
 
@@ -162,6 +163,7 @@ struct ViewerViewModelTests {
             outputDirectory: URL(fileURLWithPath: rescanned.summary.outputDirectory, isDirectory: true),
             mode: rescanned.summary.mode,
             parallelism: rescanned.summary.parallelism,
+            callStrategy: .singlePerLink,
             items: updatedItems
         )
 
@@ -277,6 +279,7 @@ struct ViewerViewModelTests {
             outputDirectory: store.rootDirectory.path,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: items
         )
         var persisted = try store.createBatch(batch)
@@ -303,6 +306,7 @@ struct ViewerViewModelTests {
             outputDirectory: persisted.summary.outputDirectory,
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
+            callStrategy: .singlePerLink,
             items: updatedItems
         )
         let batchURL = persisted.batchDirectory.appendingPathComponent("batch.json")

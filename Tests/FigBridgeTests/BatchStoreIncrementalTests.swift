@@ -18,6 +18,7 @@ struct BatchStoreIncrementalTests {
             outputDirectory: sandbox.root.path,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: [initialItem]
         )
 
@@ -38,6 +39,7 @@ struct BatchStoreIncrementalTests {
             outputDirectory: URL(fileURLWithPath: batch.outputDirectory, isDirectory: true),
             mode: batch.mode,
             parallelism: batch.parallelism,
+            callStrategy: .singlePerLink,
             items: [initialItem, appendedItem]
         )
 

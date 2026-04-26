@@ -36,6 +36,7 @@ public final class BatchStore: Sendable {
         outputDirectory: URL,
         mode: GenerationMode,
         parallelism: Int,
+        callStrategy: AgentCallStrategy,
         items: [FigmaLinkItem]
     ) throws -> PersistedBatch {
         let batchDirectory = rootDirectory.appendingPathComponent(id, isDirectory: true)
@@ -52,6 +53,7 @@ public final class BatchStore: Sendable {
             outputDirectory: outputDirectory.path,
             mode: mode,
             parallelism: parallelism,
+            callStrategy: callStrategy,
             items: items
         )
         return try writeBatch(batch, into: batchDirectory)
@@ -79,6 +81,7 @@ public final class BatchStore: Sendable {
             outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
+            callStrategy: persisted.summary.callStrategy,
             items: updatedItems
         )
     }
@@ -100,6 +103,7 @@ public final class BatchStore: Sendable {
             outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
+            callStrategy: persisted.summary.callStrategy,
             items: updatedItems
         )
     }
@@ -133,6 +137,7 @@ public final class BatchStore: Sendable {
             outputDirectory: persisted.summary.outputDirectory,
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
+            callStrategy: persisted.summary.callStrategy,
             items: persisted.summary.items
         )
         return try writeBatch(renamedBatch, into: destinationDirectory)

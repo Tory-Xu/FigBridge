@@ -26,6 +26,7 @@ public struct GenerationCoordinator: Sendable {
         outputDirectory: URL,
         mode: GenerationMode,
         parallelism: Int,
+        callStrategy: AgentCallStrategy,
         existingBatchID: String? = nil,
         items: [FigmaLinkItem],
         itemStarted: (@Sendable (FigmaLinkItem) async -> Void)? = nil,
@@ -39,11 +40,16 @@ public struct GenerationCoordinator: Sendable {
         let pendingItems = items.filter { $0.generatedYAMLPath == nil }
         let resolvedPendingItems: [FigmaLinkItem]
 
-        switch mode {
-        case .sequential:
-            resolvedPendingItems = try await runSequential(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress)
-        case .parallel:
-            resolvedPendingItems = try await runParallel(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, itemStarted: itemStarted, progress: progress)
+        switch callStrategy {
+        case .singlePerLink:
+            switch mode {
+            case .sequential:
+                resolvedPendingItems = try await runSequential(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress)
+            case .parallel:
+                resolvedPendingItems = try await runParallel(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, parallelism: parallelism, itemStarted: itemStarted, progress: progress)
+            }
+        case .singleForBatch:
+            resolvedPendingItems = try await runBatchSingleCall(items: pendingItems, provider: agent, promptTemplate: promptTemplate, batchDirectory: batchDirectory, itemStarted: itemStarted, progress: progress)
         }
 
         let resolvedMap = Dictionary(uniqueKeysWithValues: resolvedPendingItems.map { ($0.id, $0) })
@@ -59,6 +65,7 @@ public struct GenerationCoordinator: Sendable {
                 outputDirectory: outputDirectory.path,
                 mode: mode,
                 parallelism: parallelism,
+                callStrategy: callStrategy,
                 items: resolvedItems
             )
             return try batchStore.createBatch(batch)
@@ -72,6 +79,7 @@ public struct GenerationCoordinator: Sendable {
             outputDirectory: outputDirectory,
             mode: mode,
             parallelism: parallelism,
+            callStrategy: callStrategy,
             items: resolvedItems
         )
     }
@@ -133,7 +141,7 @@ public struct GenerationCoordinator: Sendable {
             await itemStarted(resolvedItem)
         }
         try Task.checkCancellation()
-        let prompt = PromptBuilder.makePrompt(template: promptTemplate, item: item)
+        let prompt = PromptBuilder.makeSinglePrompt(template: promptTemplate, item: item)
         let itemDirectory = batchDirectory.appendingPathComponent("items/\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
         let yamlDirectory = itemDirectory.appendingPathComponent("yaml", isDirectory: true)
         try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
@@ -159,6 +167,98 @@ public struct GenerationCoordinator: Sendable {
 
         return resolvedItem
     }
+
+    private func runBatchSingleCall(
+        items: [FigmaLinkItem],
+        provider: AgentProvider,
+        promptTemplate: String,
+        batchDirectory: URL,
+        itemStarted: (@Sendable (FigmaLinkItem) async -> Void)?,
+        progress: (@Sendable (Int, Int, FigmaLinkItem) async -> Void)?
+    ) async throws -> [FigmaLinkItem] {
+        guard !items.isEmpty else {
+            return []
+        }
+
+        var resolvedItems = items
+        for index in resolvedItems.indices {
+            resolvedItems[index].generationStatus = .running
+            resolvedItems[index].logSummary = "执行中"
+            resolvedItems[index].errorMessage = nil
+            if let itemStarted {
+                await itemStarted(resolvedItems[index])
+            }
+        }
+
+        try Task.checkCancellation()
+        let prompt = PromptBuilder.makeBatchPrompt(template: promptTemplate, items: items)
+        let callItem = items[0]
+        let result: AgentRunResult
+        let rawOutputURL = makeBatchRawOutputURL(for: callItem, batchDirectory: batchDirectory)
+        do {
+            result = try await agentRunner.run(provider: provider, prompt: prompt, item: callItem)
+            try FileManager.default.createDirectory(at: rawOutputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try result.output.write(to: rawOutputURL, atomically: true, encoding: .utf8)
+        } catch {
+            var completed = 0
+            for index in resolvedItems.indices {
+                resolvedItems[index].generationStatus = .failed
+                resolvedItems[index].generatedYAMLPath = nil
+                resolvedItems[index].agentOutputPath = nil
+                resolvedItems[index].errorMessage = error.localizedDescription
+                resolvedItems[index].logSummary = "执行失败"
+                completed += 1
+                if let progress {
+                    await progress(completed, resolvedItems.count, resolvedItems[index])
+                }
+            }
+            return resolvedItems
+        }
+        let outputMap = MultiYAMLOutputParser.parse(result.output)
+
+        var completed = 0
+        for index in resolvedItems.indices {
+            let item = resolvedItems[index]
+            let key = MultiYAMLOutputParser.ResultKey(fileKey: item.fileKey, nodeId: item.nodeId)
+            guard let yamlText = outputMap[key], !yamlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                resolvedItems[index].generationStatus = .failed
+                resolvedItems[index].generatedYAMLPath = nil
+                resolvedItems[index].agentOutputPath = rawOutputURL.path
+                resolvedItems[index].errorMessage = "agent 输出缺少该链接的 YAML 分段"
+                resolvedItems[index].logSummary = "执行失败"
+                completed += 1
+                if let progress {
+                    await progress(completed, resolvedItems.count, resolvedItems[index])
+                }
+                continue
+            }
+
+            let itemDirectory = batchDirectory.appendingPathComponent("items/\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
+            let yamlDirectory = itemDirectory.appendingPathComponent("yaml", isDirectory: true)
+            try FileManager.default.createDirectory(at: yamlDirectory, withIntermediateDirectories: true)
+            let yamlURL = yamlDirectory.appendingPathComponent("figma-node-\(item.nodeId.replacingOccurrences(of: ":", with: "-")).yaml")
+            try yamlText.write(to: yamlURL, atomically: true, encoding: .utf8)
+
+            resolvedItems[index].generatedYAMLPath = yamlURL.path
+            resolvedItems[index].agentOutputPath = rawOutputURL.path
+            resolvedItems[index].generationStatus = .success
+            resolvedItems[index].errorMessage = nil
+            resolvedItems[index].logSummary = "\(provider.displayName) 已执行：\(result.executablePath)"
+
+            completed += 1
+            if let progress {
+                await progress(completed, resolvedItems.count, resolvedItems[index])
+            }
+        }
+
+        return resolvedItems
+    }
+
+    private func makeBatchRawOutputURL(for item: FigmaLinkItem, batchDirectory: URL) -> URL {
+        let itemDirectory = batchDirectory.appendingPathComponent("items/\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
+        let yamlDirectory = itemDirectory.appendingPathComponent("yaml", isDirectory: true)
+        return yamlDirectory.appendingPathComponent("agent-output.txt")
+    }
 }
 
 enum BatchNaming {
@@ -170,7 +270,7 @@ enum BatchNaming {
 }
 
 enum PromptBuilder {
-    static func makePrompt(template: String, item: FigmaLinkItem) -> String {
+    static func makeSinglePrompt(template: String, item: FigmaLinkItem) -> String {
         """
         \(template)
 
@@ -179,5 +279,60 @@ enum PromptBuilder {
         Node ID: \(item.nodeId)
         Title: \(item.title ?? "")
         """
+    }
+
+    static func makeBatchPrompt(template: String, items: [FigmaLinkItem]) -> String {
+        let itemLines = items.enumerated().map { index, item in
+            """
+            [\(index + 1)]
+            Figma URL: \(item.url)
+            File Key: \(item.fileKey)
+            Node ID: \(item.nodeId)
+            Title: \(item.title ?? "")
+            """
+        }.joined(separator: "\n\n")
+
+        return """
+        \(template)
+
+        你将处理多个 Figma 链接，请为每个链接输出一个 YAML，并严格使用以下分段格式：
+
+        <<<FIGBRIDGE_YAML_START fileKey=<fileKey> nodeId=<nodeId>>>
+        <YAML content>
+        <<<FIGBRIDGE_YAML_END>>>
+
+        规则：
+        1. 每个输入链接必须且仅能输出一个分段。
+        2. 分段中的 fileKey 和 nodeId 必须与输入完全一致。
+        3. YAML 内容中不要包含 markdown 代码块标记。
+        4. 除上述分段外不要输出任何解释文字。
+
+        待处理链接：
+        \(itemLines)
+        """
+    }
+}
+
+enum MultiYAMLOutputParser {
+    struct ResultKey: Hashable {
+        let fileKey: String
+        let nodeId: String
+    }
+
+    static func parse(_ output: String) -> [ResultKey: String] {
+        let pattern = #"<<<FIGBRIDGE_YAML_START\s+fileKey=([^\s>]+)\s+nodeId=([^\s>]+)>>>[\r\n]+([\s\S]*?)<<<FIGBRIDGE_YAML_END>>>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return [:]
+        }
+        let source = output as NSString
+        let matches = regex.matches(in: output, range: NSRange(location: 0, length: source.length))
+        var result: [ResultKey: String] = [:]
+        for match in matches where match.numberOfRanges == 4 {
+            let fileKey = source.substring(with: match.range(at: 1))
+            let nodeId = source.substring(with: match.range(at: 2))
+            let yamlText = source.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            result[ResultKey(fileKey: fileKey, nodeId: nodeId)] = yamlText
+        }
+        return result
     }
 }

@@ -24,6 +24,7 @@ struct BatchStoreTests {
             outputDirectory: sandbox.root.path,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: [item]
         )
 

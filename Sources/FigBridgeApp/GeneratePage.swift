@@ -29,6 +29,10 @@ struct GeneratePage: View {
                     Text("逐个").tag(GenerationMode.sequential)
                     Text("并发").tag(GenerationMode.parallel)
                 }
+                Picker("调用策略", selection: $viewModel.callStrategy) {
+                    Text(AgentCallStrategy.singlePerLink.displayName).tag(AgentCallStrategy.singlePerLink)
+                    Text(AgentCallStrategy.singleForBatch.displayName).tag(AgentCallStrategy.singleForBatch)
+                }
                 Stepper("并发数 \(viewModel.parallelism)", value: $viewModel.parallelism, in: 1...8)
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $viewModel.inputText)

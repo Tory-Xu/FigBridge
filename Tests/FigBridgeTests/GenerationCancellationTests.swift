@@ -23,6 +23,7 @@ struct GenerationCancellationTests {
                 outputDirectory: sandbox.root,
                 mode: .sequential,
                 parallelism: 1,
+                callStrategy: .singlePerLink,
                 items: items
             )
         }

@@ -117,6 +117,9 @@ final class GenerateViewModel: ObservableObject {
     @Published var parallelism: Int = 2 {
         didSet { persistDraftIfNeeded() }
     }
+    @Published var callStrategy: AgentCallStrategy = .singlePerLink {
+        didSet { persistDraftIfNeeded() }
+    }
     @Published var inputText: String = "" {
         didSet { persistDraftIfNeeded() }
     }
@@ -289,6 +292,7 @@ final class GenerateViewModel: ObservableObject {
                 outputDirectory: URL(fileURLWithPath: outputDirectoryPath, isDirectory: true),
                 mode: mode,
                 parallelism: parallelism,
+                callStrategy: callStrategy,
                 existingBatchID: currentBatchID,
                 items: items,
                 itemStarted: { [weak self] item in
@@ -499,6 +503,7 @@ final class GenerateViewModel: ObservableObject {
         outputDirectoryPath = persisted.summary.outputDirectory
         mode = persisted.summary.mode
         parallelism = persisted.summary.parallelism
+        callStrategy = persisted.summary.callStrategy
         inputText = persisted.summary.sourceInputText
         items = persisted.summary.items
         selectedItemID = persisted.summary.items.first?.id
@@ -524,6 +529,7 @@ final class GenerateViewModel: ObservableObject {
         outputDirectoryPath = settingsViewModel.settings.outputDirectoryPath ?? batchStore.rootDirectory.path
         mode = settingsViewModel.settings.defaultGenerationMode
         parallelism = settingsViewModel.settings.parallelism
+        callStrategy = settingsViewModel.settings.defaultAgentCallStrategy
     }
 
     private func applyWorkspaceDraft(_ draft: GenerateWorkspaceDraft) {
@@ -532,6 +538,7 @@ final class GenerateViewModel: ObservableObject {
         outputDirectoryPath = draft.outputDirectoryPath
         mode = draft.mode
         parallelism = draft.parallelism
+        callStrategy = draft.callStrategy
         inputText = draft.inputText
         items = draft.items
         selectedItemID = draft.selectedItemID
@@ -563,6 +570,7 @@ final class GenerateViewModel: ObservableObject {
             outputDirectoryPath: outputDirectoryPath,
             mode: mode,
             parallelism: parallelism,
+            callStrategy: callStrategy,
             inputText: inputText,
             items: items,
             selectedItemID: selectedItemID,

@@ -255,6 +255,7 @@ struct GenerateViewModelTests {
             outputDirectoryPath: sandbox.root.appendingPathComponent("exports", isDirectory: true).path,
             mode: .parallel,
             parallelism: 4,
+            callStrategy: .singleForBatch,
             inputText: "draft input",
             items: [item],
             selectedItemID: item.id,
@@ -271,6 +272,7 @@ struct GenerateViewModelTests {
         #expect(restoredHarness.viewModel.outputDirectoryPath == draft.outputDirectoryPath)
         #expect(restoredHarness.viewModel.mode == .parallel)
         #expect(restoredHarness.viewModel.parallelism == 4)
+        #expect(restoredHarness.viewModel.callStrategy == .singleForBatch)
         #expect(restoredHarness.viewModel.inputText == "draft input")
         #expect(restoredHarness.viewModel.items == [item])
         #expect(restoredHarness.viewModel.selectedItemID == item.id)
@@ -326,6 +328,7 @@ struct GenerateViewModelTests {
             outputDirectory: sandbox.root.path,
             mode: .parallel,
             parallelism: 5,
+            callStrategy: .singlePerLink,
             items: [item]
         ))
 
@@ -337,11 +340,13 @@ struct GenerateViewModelTests {
         #expect(harness.viewModel.inputText == "batch input")
         #expect(harness.viewModel.mode == .parallel)
         #expect(harness.viewModel.parallelism == 5)
+        #expect(harness.viewModel.callStrategy == .singlePerLink)
         #expect(harness.viewModel.items == [item])
 
         let draft = try #require(harness.draftStore.load())
         #expect(draft.currentBatchID == "batch-1")
         #expect(draft.parallelism == 5)
+        #expect(draft.callStrategy == .singlePerLink)
     }
 
     @Test func selectingAgentImmediatelyPersistsToSettingsStore() throws {
@@ -379,6 +384,7 @@ struct GenerateViewModelTests {
             outputDirectoryPath: sandbox.root.path,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             inputText: "draft",
             items: [],
             selectedItemID: nil,
@@ -417,7 +423,8 @@ private struct GenerateViewModelHarness {
             figmaToken: figmaToken,
             defaultExportFormat: .png,
             defaultGenerationMode: .sequential,
-            parallelism: 2
+            parallelism: 2,
+            defaultAgentCallStrategy: .singlePerLink
         ))
         let agentService = AgentService(shellClient: ShellClient(environment: [:]))
         let figmaService: FigmaService
@@ -452,6 +459,7 @@ private struct GenerateViewModelHarness {
         viewModel.outputDirectoryPath = rootDirectory.path
         viewModel.mode = GenerationMode.sequential
         viewModel.parallelism = 2
+        viewModel.callStrategy = .singlePerLink
     }
 }
 
@@ -546,10 +554,42 @@ private actor RecordingAgentRunner: AgentRunning {
 
     func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
         calls.append("\(item.fileKey)|\(item.nodeId)")
+        if prompt.contains("待处理链接：") {
+            return AgentRunResult(
+                output: """
+                <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>
+                name: 1:2
+                <<<FIGBRIDGE_YAML_END>>>
+                <<<FIGBRIDGE_YAML_START fileKey=FILE2 nodeId=3:4>>>
+                name: 3:4
+                <<<FIGBRIDGE_YAML_END>>>
+                """,
+                executablePath: "/mock/\(provider.rawValue)",
+                arguments: []
+            )
+        }
         return AgentRunResult(output: "name: \(item.nodeId)", executablePath: "/mock/\(provider.rawValue)", arguments: [])
     }
 
     func recordedCalls() -> [String] {
         calls
+    }
+}
+
+extension GenerateViewModelTests {
+    @Test func singleBatchStrategyCallsRunnerOnlyOnceForMultipleItems() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        harness.viewModel.callStrategy = .singleForBatch
+        let first = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        let second = FigmaLinkItem(rawInputLine: "two", title: "Two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4")
+        harness.viewModel.items = [first, second]
+
+        await harness.viewModel.generate()
+
+        #expect(await harness.runner.recordedCalls() == ["FILE1|1:2"])
+        #expect(harness.viewModel.items.allSatisfy { $0.generatedYAMLPath != nil })
     }
 }

@@ -26,6 +26,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: items
         )
 
@@ -56,6 +57,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .parallel,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: items
         )
 
@@ -84,6 +86,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             items: [firstItem]
         )
 
@@ -94,6 +97,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .sequential,
             parallelism: 2,
+            callStrategy: .singlePerLink,
             existingBatchID: firstBatch.summary.id,
             items: firstBatch.summary.items + [secondItem]
         )
@@ -120,6 +124,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .sequential,
             parallelism: 1,
+            callStrategy: .singlePerLink,
             items: [item]
         )
 
@@ -132,6 +137,7 @@ struct GenerationCoordinatorTests {
             outputDirectory: sandbox.root,
             mode: .sequential,
             parallelism: 1,
+            callStrategy: .singlePerLink,
             existingBatchID: firstBatch.summary.id,
             items: firstBatch.summary.items
         )
@@ -139,6 +145,76 @@ struct GenerationCoordinatorTests {
         #expect(retriedBatch.summary.items[0].generationStatus == .success)
         #expect(retriedBatch.summary.items[0].generatedYAMLPath != nil)
         #expect(await runner.recordedCalls() == ["FILE1|1:2", "FILE1|1:2"])
+    }
+
+    @Test func runsSingleBatchCallAndSplitsOutputsPerItem() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let batchStore = BatchStore(rootDirectory: sandbox.root)
+        let runner = MockBatchAgentRunner(output: """
+        <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>
+        name: first
+        <<<FIGBRIDGE_YAML_END>>>
+        <<<FIGBRIDGE_YAML_START fileKey=FILE2 nodeId=3:4>>>
+        name: second
+        <<<FIGBRIDGE_YAML_END>>>
+        """)
+        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: runner)
+        let items = [
+            FigmaLinkItem(rawInputLine: "one", title: "one", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2"),
+            FigmaLinkItem(rawInputLine: "two", title: "two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4"),
+        ]
+
+        let batch = try await coordinator.generate(
+            agent: .codex,
+            promptTemplate: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singleForBatch,
+            items: items
+        )
+
+        #expect(batch.summary.callStrategy == .singleForBatch)
+        #expect(batch.summary.items.allSatisfy { $0.generationStatus == .success })
+        #expect(batch.summary.items.allSatisfy { $0.generatedYAMLPath != nil })
+        #expect(await runner.recordedCalls() == ["FILE1|1:2"])
+    }
+
+    @Test func keepsMissingSegmentItemsAsFailedInSingleBatchCall() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let batchStore = BatchStore(rootDirectory: sandbox.root)
+        let runner = MockBatchAgentRunner(output: """
+        <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>
+        name: first
+        <<<FIGBRIDGE_YAML_END>>>
+        """)
+        let coordinator = GenerationCoordinator(batchStore: batchStore, agentRunner: runner)
+        let items = [
+            FigmaLinkItem(rawInputLine: "one", title: "one", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2"),
+            FigmaLinkItem(rawInputLine: "two", title: "two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4"),
+        ]
+
+        let batch = try await coordinator.generate(
+            agent: .codex,
+            promptTemplate: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singleForBatch,
+            items: items
+        )
+
+        let successCount = batch.summary.items.filter { $0.generationStatus == .success }.count
+        let failedCount = batch.summary.items.filter { $0.generationStatus == .failed }.count
+        #expect(successCount == 1)
+        #expect(failedCount == 1)
+        #expect(batch.summary.items.first(where: { $0.fileKey == "FILE2" })?.errorMessage?.contains("缺少") == true)
     }
 }
 
@@ -181,6 +257,24 @@ private actor RetryingMockAgentRunner: AgentRunning {
             throw MockFailure()
         }
         return AgentRunResult(output: "name: retried", executablePath: "/mock/\(provider.rawValue)", arguments: [])
+    }
+
+    func recordedCalls() -> [String] {
+        calls
+    }
+}
+
+private actor MockBatchAgentRunner: AgentRunning {
+    private let output: String
+    private var calls: [String] = []
+
+    init(output: String) {
+        self.output = output
+    }
+
+    func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem) async throws -> AgentRunResult {
+        calls.append("\(item.fileKey)|\(item.nodeId)")
+        return AgentRunResult(output: output, executablePath: "/mock/\(provider.rawValue)", arguments: [])
     }
 
     func recordedCalls() -> [String] {
