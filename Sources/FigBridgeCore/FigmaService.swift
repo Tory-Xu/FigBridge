@@ -138,6 +138,7 @@ public actor FigmaService {
         }
 
         var cachedResources: [FigmaResourceItem] = []
+        var didFailToCacheAnyResource = false
         for (index, resource) in payload.resources.enumerated() {
             guard let remoteURL = resource.remoteURL else {
                 continue
@@ -149,12 +150,13 @@ public actor FigmaService {
                 cached.localPath = localURL.path
                 cachedResources.append(cached)
             } catch {
+                didFailToCacheAnyResource = true
                 resolved.errorMessage = error.localizedDescription
             }
         }
 
         resolved.resourceItems = cachedResources
-        resolved.resourceStatus = .success
+        resolved.resourceStatus = didFailToCacheAnyResource ? .failed : .success
         return resolved
     }
 

@@ -319,6 +319,34 @@ struct GenerateViewModelTests {
         #expect(harness.viewModel.canRefreshResources(for: item))
     }
 
+    @Test func partialResourceDownloadFailureEnablesRefreshAndShowsFailedStatus() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(
+            rootDirectory: sandbox.root,
+            figmaTransport: PartiallyFailingResourceTransport(),
+            figmaToken: "token"
+        )
+
+        harness.viewModel.inputText = "首页: @https://www.figma.com/design/FILE123/App?node-id=1-2"
+        harness.viewModel.addInput()
+
+        let failed = await waitUntil {
+            guard let item = harness.viewModel.items.first else {
+                return false
+            }
+            return item.previewStatus == .success && item.resourceStatus == .failed
+        }
+        #expect(failed)
+
+        let item = try #require(harness.viewModel.items.first)
+        harness.viewModel.selectedItemID = item.id
+
+        #expect(harness.viewModel.selectedItemResourceStatusText == "failed")
+        #expect(harness.viewModel.canRefreshResources(for: item))
+    }
+
     @Test func renameSelectedItemPersistsToCurrentBatchAndLoadsYamlText() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

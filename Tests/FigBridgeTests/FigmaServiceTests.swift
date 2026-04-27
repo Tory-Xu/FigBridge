@@ -224,6 +224,30 @@ struct FigmaServiceTests {
         #expect(resolved.resourceStatus == .success)
         #expect(resolved.resourceItems.isEmpty)
     }
+
+    @Test func marksResourceStatusFailedWhenAnyResourceDownloadFails() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let transport = PartiallyFailingResourceTransport()
+        let service = FigmaService(baseDirectory: sandbox.root, transport: transport)
+        let item = FigmaLinkItem(
+            rawInputLine: "登录卡片",
+            title: "登录卡片",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
+
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
+
+        #expect(resolved.previewStatus == .success)
+        #expect(resolved.resourceStatus == .failed)
+        #expect(resolved.resourceItems.count == 1)
+        #expect(resolved.resourceItems.first?.name == "img-ref-1")
+        #expect(resolved.resourceItems.first?.localPath != nil)
+        #expect(resolved.errorMessage?.isEmpty == false)
+    }
 }
 
 actor MockFigmaTransport: FigmaHTTPTransport {
@@ -296,4 +320,72 @@ struct MockTransportRequest {
     let url: String
     let path: String
     let query: [String: String]
+}
+
+actor PartiallyFailingResourceTransport: FigmaHTTPTransport {
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url else {
+            throw URLError(.badURL)
+        }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
+        let query = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
+
+        switch url.path {
+        case "/v1/files/FILE123/nodes":
+            return response(
+                url: url,
+                status: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Login Card",
+                        "fills": [
+                          { "type": "IMAGE", "imageRef": "img-ref-1" },
+                          { "type": "IMAGE", "imageRef": "img-ref-2" }
+                        ],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            )
+        case "/v1/images/FILE123":
+            if query["ids"] == "1:2" {
+                return response(url: url, status: 200, body: #"{"images":{"1:2":"https://cdn.figma.test/preview.png"}}"#)
+            }
+        case "/v1/files/FILE123/images":
+            return response(
+                url: url,
+                status: 200,
+                body: #"{"meta":{"images":{"img-ref-1":"https://cdn.figma.test/image.png","img-ref-2":"https://cdn.figma.test/broken.png"}}}"#
+            )
+        default:
+            break
+        }
+
+        switch url.absoluteString {
+        case "https://cdn.figma.test/preview.png":
+            return response(url: url, status: 200, data: Data("PNG".utf8))
+        case "https://cdn.figma.test/image.png":
+            return response(url: url, status: 200, data: Data("RES".utf8))
+        case "https://cdn.figma.test/broken.png":
+            throw URLError(.secureConnectionFailed)
+        default:
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    private func response(url: URL, status: Int, body: String) -> (Data, HTTPURLResponse) {
+        response(url: url, status: status, data: Data(body.utf8))
+    }
+
+    private func response(url: URL, status: Int, data: Data) -> (Data, HTTPURLResponse) {
+        let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+        return (data, http)
+    }
 }
