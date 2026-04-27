@@ -79,7 +79,6 @@ struct SettingsPage: View {
             Stepper("并发上限 \(viewModel.settings.parallelism)", value: $viewModel.settings.parallelism, in: 1...8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .formStyle(.grouped)
         .task {
             await viewModel.bootstrap()
         }

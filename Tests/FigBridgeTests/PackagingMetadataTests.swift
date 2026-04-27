@@ -19,6 +19,6 @@ struct PackagingMetadataTests {
         #expect(plist["CFBundleName"] as? String == "FigBridge")
         #expect(plist["CFBundleShortVersionString"] as? String == "1.0")
         #expect(plist["CFBundleVersion"] as? String == "1")
-        #expect(plist["LSMinimumSystemVersion"] as? String == "14.0")
+        #expect(plist["LSMinimumSystemVersion"] as? String == "12.0")
     }
 }
