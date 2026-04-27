@@ -334,6 +334,23 @@ struct GeneratePage: View {
                     }
                 }
                 .tag(item.id)
+                .contextMenu {
+                    Button("修改") {
+                        viewModel.selectedItemID = item.id
+                        viewModel.beginRenamingItem(item.id)
+                    }
+                    if viewModel.canRefreshResources(for: item) {
+                        Button("刷新资源") {
+                            viewModel.selectedItemID = item.id
+                            viewModel.reloadResources(for: item.id)
+                        }
+                    }
+                    Divider()
+                    Button("删除", role: .destructive) {
+                        viewModel.selectedItemID = item.id
+                        viewModel.deleteItem(id: item.id)
+                    }
+                }
             }
         }
     }

@@ -259,6 +259,104 @@ struct ViewerViewModelTests {
         #expect(receivedBatchID == persisted.summary.id)
     }
 
+    @Test func beginRenamingBatchUsesProvidedBatchID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-2",
+            createdAt: Date(timeIntervalSince1970: 20),
+            sourceInputText: "source-2",
+            items: [
+                makeItem(title: "Item B", nodeId: "2:1", yamlText: "yaml-b")
+            ]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        viewModel.selectedBatchID = "batch-1"
+
+        viewModel.beginRenamingBatch("batch-2")
+
+        #expect(viewModel.renamingBatchID == "batch-2")
+        #expect(viewModel.renamingBatchTitle == "batch-2")
+        #expect(viewModel.renamingOriginalBatchTitle == "batch-2")
+    }
+
+    @Test func beginRenamingItemUsesProvidedItemID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let persisted = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a"),
+                makeItem(title: "Item B", nodeId: "1:2", yamlText: "yaml-b")
+            ]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        viewModel.selectedItemID = persisted.summary.items[0].id
+
+        viewModel.beginRenamingItem(persisted.summary.items[1].id)
+
+        #expect(viewModel.renamingItemID == persisted.summary.items[1].id)
+        #expect(viewModel.renamingTitle == "Item B")
+        #expect(viewModel.renamingOriginalTitle == "Item B")
+    }
+
+    @Test func continueEditingBatchUsesProvidedBatchID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-2",
+            createdAt: Date(timeIntervalSince1970: 20),
+            sourceInputText: "source-2",
+            items: [
+                makeItem(title: "Item B", nodeId: "2:1", yamlText: "yaml-b")
+            ]
+        )
+
+        var receivedBatchID: String?
+        let viewModel = ViewerViewModel(batchStore: store) { batch in
+            receivedBatchID = batch.summary.id
+        }
+        viewModel.reload()
+        viewModel.selectedBatchID = "batch-1"
+
+        viewModel.continueEditingBatch("batch-2")
+
+        #expect(receivedBatchID == "batch-2")
+    }
+
     @Test func selectedBatchExportsDirectoryUsesFixedBatchSubdirectory() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

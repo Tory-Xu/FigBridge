@@ -71,6 +71,33 @@ struct ViewerPage: View {
                                 .foregroundStyle(.secondary)
                         }
                         .tag(batch.summary.id)
+                        .contextMenu {
+                            Button("修改批次名") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.beginRenamingBatch(batch.summary.id)
+                            }
+                            Button("导出批次") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.exportSelectedBatch()
+                            }
+                            Button("继续编辑") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.continueEditingBatch(batch.summary.id)
+                            }
+                            Button("打开目录") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.openSelectedBatchInFinder()
+                            }
+                            Button("打开导出目录") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.openSelectedBatchExportsDirectoryInFinder()
+                            }
+                            Divider()
+                            Button("删除批次", role: .destructive) {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.deleteSelectedBatch()
+                            }
+                        }
                     }
                 }
                 .onSubmit {
@@ -130,6 +157,12 @@ struct ViewerPage: View {
                             }
                         }
                         .tag(item.id)
+                        .contextMenu {
+                            Button("修改") {
+                                viewModel.selectedItemID = item.id
+                                viewModel.beginRenamingItem(item.id)
+                            }
+                        }
                     }
                     .onSubmit {
                         if viewModel.renamingItemID != nil {

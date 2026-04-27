@@ -263,6 +263,24 @@ struct GenerateViewModelTests {
         #expect(!harness.viewModel.canGenerate)
     }
 
+    @Test func beginRenamingItemUsesProvidedItemID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        let first = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        let second = FigmaLinkItem(rawInputLine: "two", title: "Two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4")
+
+        harness.viewModel.items = [first, second]
+        harness.viewModel.selectedItemID = first.id
+
+        harness.viewModel.beginRenamingItem(second.id)
+
+        #expect(harness.viewModel.renamingItemID == second.id)
+        #expect(harness.viewModel.renamingTitle == "Two")
+        #expect(harness.viewModel.renamingOriginalTitle == "Two")
+    }
+
     @Test func addInputShowsHintForEmptyTextAndClearsTextAfterSuccess() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }
