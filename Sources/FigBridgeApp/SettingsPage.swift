@@ -72,24 +72,6 @@ struct SettingsPage: View {
                             Text("PNG").tag(ExportFormat.png)
                         }
                     }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Picker("默认生成模式", selection: $viewModel.settings.defaultGenerationMode) {
-                            Text("逐个").tag(GenerationMode.sequential)
-                            Text("并发").tag(GenerationMode.parallel)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Picker("默认调用策略", selection: $viewModel.settings.defaultAgentCallStrategy) {
-                            Text(AgentCallStrategy.singlePerLink.displayName).tag(AgentCallStrategy.singlePerLink)
-                            Text(AgentCallStrategy.singleForBatch.displayName).tag(AgentCallStrategy.singleForBatch)
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Stepper("并发上限 \(viewModel.settings.parallelism)", value: $viewModel.settings.parallelism, in: 1...8)
-                    }
                 }
             }
         }

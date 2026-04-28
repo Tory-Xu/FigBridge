@@ -6,7 +6,7 @@ macOS 原生 `SwiftUI` Figma YAML 工作台，采用 `MVVM` 架构。
 
 - `生成` 页：解析多行 Figma `design` 链接、检测 `claude` / `codex`、顺序或并发生成 YAML
 - `查看` 页：扫描批次目录、查看 YAML、导出 zip、从 zip 导入批次
-- `设置` 页：保存 Figma Token、默认 Prompt、默认输出目录、默认生成模式和并发数
+- `设置` 页：保存 Figma Token、默认 Prompt、默认输出目录、预览图片格式
 - `Figma REST API`：节点元数据、节点预览图、图片资源解析与本地缓存
 
 ## 工程结构
