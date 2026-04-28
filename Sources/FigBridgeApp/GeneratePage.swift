@@ -112,7 +112,6 @@ struct GeneratePage: View {
                     Text(viewModel.validationMessage)
                         .foregroundStyle(.red)
                 }
-                Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .frame(minWidth: 360)
@@ -245,7 +244,6 @@ struct GeneratePage: View {
                                         .fixedSize(horizontal: true, vertical: true)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .frame(minHeight: 120, maxHeight: 220)
                             } else {
                                 Text("未找到 YAML")
                                     .foregroundStyle(.secondary)
@@ -277,8 +275,6 @@ struct GeneratePage: View {
                                 viewModel.exportAllResources()
                             }
                         }
-                    } else {
-                        Spacer()
                     }
                 } else {
                     EmptyStateView(title: "未选择条目", systemImage: "sidebar.right")
