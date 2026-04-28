@@ -1005,7 +1005,7 @@ private actor RecordingAgentRunner: AgentRunning {
         eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil
     ) async throws -> AgentRunResult {
         calls.append("\(item.fileKey)|\(item.nodeId)")
-        if prompt.contains("待处理链接：") {
+        if prompt.contains("Links to process:") {
             return AgentRunResult(
                 output: """
                 <<<FIGBRIDGE_YAML_START fileKey=FILE1 nodeId=1:2>>>

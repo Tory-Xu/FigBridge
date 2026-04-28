@@ -334,19 +334,19 @@ enum PromptBuilder {
         return """
         \(template)
 
-        你将处理多个 Figma 链接，请为每个链接输出一个 YAML，并严格使用以下分段格式：
+        You will process multiple Figma links. Output one YAML for each link and strictly use the segmented format below:
 
         <<<FIGBRIDGE_YAML_START fileKey=<fileKey> nodeId=<nodeId>>>
         <YAML content>
         <<<FIGBRIDGE_YAML_END>>>
 
-        规则：
-        1. 每个输入链接必须且仅能输出一个分段。
-        2. 分段中的 fileKey 和 nodeId 必须与输入完全一致。
-        3. YAML 内容中不要包含 markdown 代码块标记。
-        4. 除上述分段外不要输出任何解释文字。
+        Rules:
+        1. Each input link must produce exactly one segment.
+        2. The fileKey and nodeId in each segment must exactly match the input.
+        3. Do not include markdown code block markers in YAML content.
+        4. Do not output any explanatory text outside the segments above.
 
-        待处理链接：
+        Links to process:
         \(itemLines)
         """
     }
