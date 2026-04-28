@@ -747,6 +747,58 @@ struct GenerateViewModelTests {
         #expect(FileManager.default.fileExists(atPath: batchDirectory.path))
     }
 
+    @Test func cancelledGenerationDoesNotShowCompletedMessage() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: SlowIgnoringCancellationRunner())
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.items = [item]
+
+        let generationTask = Task {
+            await harness.viewModel.generate()
+        }
+        let started = await waitUntil {
+            harness.viewModel.isGenerating
+        }
+        #expect(started)
+
+        harness.viewModel.cancelGeneration()
+        await generationTask.value
+
+        #expect(harness.viewModel.validationMessage == "生成已取消")
+        #expect(harness.viewModel.validationMessage != "生成完成")
+    }
+
+    @Test func startNewBatchDuringGenerationKeepsWorkspaceCleared() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: SlowIgnoringCancellationRunner())
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.inputText = "one"
+        harness.viewModel.items = [item]
+        harness.viewModel.selectedItemID = item.id
+
+        let generationTask = Task {
+            await harness.viewModel.generate()
+        }
+        let started = await waitUntil {
+            harness.viewModel.isGenerating
+        }
+        #expect(started)
+
+        harness.viewModel.startNewBatch()
+        await generationTask.value
+
+        #expect(harness.viewModel.inputText.isEmpty)
+        #expect(harness.viewModel.items.isEmpty)
+        #expect(harness.viewModel.selectedItemID == nil)
+        #expect(harness.viewModel.currentBatchID == nil)
+        #expect(harness.viewModel.currentBatchDirectory == nil)
+        #expect(harness.viewModel.outputDirectoryPath == "当前批次/exports")
+    }
+
     @Test func syncPromptFromSettingsOverwritesWorkspacePrompt() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }
@@ -1025,6 +1077,18 @@ private actor StreamingRecordingAgentRunner: AgentRunning {
                 stderr: ""
             )
         }
+    }
+}
+
+private actor SlowIgnoringCancellationRunner: AgentRunning {
+    func run(
+        provider: AgentProvider,
+        prompt: String,
+        item: FigmaLinkItem,
+        eventHandler: (@Sendable (AgentRunEvent) async -> Void)?
+    ) async throws -> AgentRunResult {
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        return AgentRunResult(output: "name: \(item.nodeId)", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 }
 

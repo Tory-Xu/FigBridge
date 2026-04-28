@@ -216,6 +216,8 @@ final class GenerateViewModel: ObservableObject {
     private var resourceLoadTasks: [UUID: Task<Void, Never>] = [:]
     private var runLogsByItemID: [UUID: GenerationRunLog] = [:]
     private var sharedRunLogIDByBatchKey: [String: String] = [:]
+    private var activeGenerationSessionID: UUID?
+    private var cancelledGenerationSessionIDs: Set<UUID> = []
 
     init(settingsViewModel: SettingsViewModel, batchStore: BatchStore, generationCoordinator: GenerationCoordinator, figmaService: FigmaService, draftStore: GenerateWorkspaceDraftStore) {
         self.settingsViewModel = settingsViewModel
@@ -318,6 +320,9 @@ final class GenerateViewModel: ObservableObject {
 
     func startNewBatch() {
         cancelGeneration()
+        isGenerating = false
+        generationTask = nil
+        activeGenerationSessionID = nil
         cancelAllResourceLoads()
         currentBatchID = nil
         currentBatchDirectory = nil
@@ -349,6 +354,9 @@ final class GenerateViewModel: ObservableObject {
             return
         }
 
+        let sessionID = UUID()
+        activeGenerationSessionID = sessionID
+        cancelledGenerationSessionIDs.remove(sessionID)
         isGenerating = true
         completedCount = 0
         let pendingItemIDs = Set(pendingItems.map(\.id))
@@ -379,6 +387,7 @@ final class GenerateViewModel: ObservableObject {
                 itemStarted: { [weak self] item in
                     await MainActor.run {
                         guard let self,
+                              self.isGenerationSessionActive(sessionID),
                               let index = self.items.firstIndex(where: { $0.id == item.id }) else {
                             return
                         }
@@ -387,7 +396,7 @@ final class GenerateViewModel: ObservableObject {
                 },
                 progress: { [weak self] completed, total, item in
                     await MainActor.run {
-                        guard let self else {
+                        guard let self, self.isGenerationSessionActive(sessionID) else {
                             return
                         }
                         self.completedCount = completed
@@ -399,7 +408,7 @@ final class GenerateViewModel: ObservableObject {
                 },
                 itemEvent: { [weak self] itemID, event in
                     await MainActor.run {
-                        guard let self else {
+                        guard let self, self.isGenerationSessionActive(sessionID) else {
                             return
                         }
                         self.applyRunEvent(event, for: itemID, provider: provider)
@@ -408,9 +417,18 @@ final class GenerateViewModel: ObservableObject {
             )
         }
         generationTask = task
+        var shouldFinishAsCancelled = false
 
         do {
             let persisted = try await task.value
+            guard isGenerationSessionActive(sessionID) else {
+                shouldFinishAsCancelled = cancelledGenerationSessionIDs.contains(sessionID)
+                throw CancellationError()
+            }
+            if cancelledGenerationSessionIDs.contains(sessionID) {
+                shouldFinishAsCancelled = true
+                throw CancellationError()
+            }
             let latestRunLogsByItemID = runLogsByItemID
             items = persisted.summary.items
             currentBatchID = persisted.summary.id
@@ -434,17 +452,34 @@ final class GenerateViewModel: ObservableObject {
             validationMessage = "生成完成"
             persistDraftIfNeeded()
         } catch is CancellationError {
-            validationMessage = "生成已取消"
+            if shouldFinishAsCancelled || isGenerationSessionActive(sessionID) || cancelledGenerationSessionIDs.contains(sessionID) {
+                validationMessage = "生成已取消"
+            }
         } catch {
-            validationMessage = error.localizedDescription
+            if cancelledGenerationSessionIDs.contains(sessionID) {
+                validationMessage = "生成已取消"
+            } else if isGenerationSessionActive(sessionID) {
+                validationMessage = error.localizedDescription
+            }
         }
 
-        isGenerating = false
-        generationTask = nil
+        if activeGenerationSessionID == sessionID {
+            isGenerating = false
+            generationTask = nil
+            activeGenerationSessionID = nil
+        }
+        cancelledGenerationSessionIDs.remove(sessionID)
     }
 
     func cancelGeneration() {
+        if let activeGenerationSessionID {
+            cancelledGenerationSessionIDs.insert(activeGenerationSessionID)
+        }
         generationTask?.cancel()
+    }
+
+    private func isGenerationSessionActive(_ sessionID: UUID) -> Bool {
+        activeGenerationSessionID == sessionID
     }
 
     func refreshAgents() async {
