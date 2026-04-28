@@ -494,6 +494,13 @@ final class GenerateViewModel: ObservableObject {
         guard let item = selectedItem else {
             return
         }
+        beginRenamingItem(item.id)
+    }
+
+    func beginRenamingItem(_ itemID: UUID) {
+        guard let item = items.first(where: { $0.id == itemID }) else {
+            return
+        }
         let originalTitle = item.title ?? item.nodeName ?? item.nodeId
         renamingItemID = item.id
         renamingTitle = originalTitle
@@ -1049,13 +1056,27 @@ final class ViewerViewModel: ObservableObject {
         continueEditing(batch)
     }
 
+    func continueEditingBatch(_ batchID: String) {
+        guard let batch = batches.first(where: { $0.summary.id == batchID }) else {
+            return
+        }
+        continueEditing(batch)
+    }
+
     func beginRenamingSelectedBatch() {
         guard let batch = selectedBatch else {
             return
         }
-        renamingBatchID = batch.summary.id
-        renamingBatchTitle = batch.summary.id
-        renamingOriginalBatchTitle = batch.summary.id
+        beginRenamingBatch(batch.summary.id)
+    }
+
+    func beginRenamingBatch(_ batchID: String) {
+        guard batches.contains(where: { $0.summary.id == batchID }) else {
+            return
+        }
+        renamingBatchID = batchID
+        renamingBatchTitle = batchID
+        renamingOriginalBatchTitle = batchID
     }
 
     func commitBatchRename() {
@@ -1100,6 +1121,13 @@ final class ViewerViewModel: ObservableObject {
 
     func beginRenamingSelectedItem() {
         guard let item = selectedItem else {
+            return
+        }
+        beginRenamingItem(item.id)
+    }
+
+    func beginRenamingItem(_ itemID: UUID) {
+        guard let item = selectedBatch?.summary.items.first(where: { $0.id == itemID }) else {
             return
         }
         let originalTitle = item.title ?? item.nodeName ?? item.nodeId

@@ -64,22 +64,36 @@ struct SettingsPage: View {
                 }
             }
 
-            Picker("默认导出格式", selection: $viewModel.settings.defaultExportFormat) {
-                Text("PNG").tag(ExportFormat.png)
-                Text("SVG").tag(ExportFormat.svg)
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("默认导出格式", selection: $viewModel.settings.defaultExportFormat) {
+                            Text("PNG").tag(ExportFormat.png)
+                            Text("SVG").tag(ExportFormat.svg)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("默认生成模式", selection: $viewModel.settings.defaultGenerationMode) {
+                            Text("逐个").tag(GenerationMode.sequential)
+                            Text("并发").tag(GenerationMode.parallel)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("默认调用策略", selection: $viewModel.settings.defaultAgentCallStrategy) {
+                            Text(AgentCallStrategy.singlePerLink.displayName).tag(AgentCallStrategy.singlePerLink)
+                            Text(AgentCallStrategy.singleForBatch.displayName).tag(AgentCallStrategy.singleForBatch)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Stepper("并发上限 \(viewModel.settings.parallelism)", value: $viewModel.settings.parallelism, in: 1...8)
+                    }
+                }
             }
-            Picker("默认生成模式", selection: $viewModel.settings.defaultGenerationMode) {
-                Text("逐个").tag(GenerationMode.sequential)
-                Text("并发").tag(GenerationMode.parallel)
-            }
-            Picker("默认调用策略", selection: $viewModel.settings.defaultAgentCallStrategy) {
-                Text(AgentCallStrategy.singlePerLink.displayName).tag(AgentCallStrategy.singlePerLink)
-                Text(AgentCallStrategy.singleForBatch.displayName).tag(AgentCallStrategy.singleForBatch)
-            }
-            Stepper("并发上限 \(viewModel.settings.parallelism)", value: $viewModel.settings.parallelism, in: 1...8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .formStyle(.grouped)
         .task {
             await viewModel.bootstrap()
         }

@@ -13,66 +13,37 @@ struct ViewerPage: View {
                     Text("批次")
                         .font(.title3.bold())
                     Spacer()
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            viewerActionButton("导入目录", systemImage: "folder.badge.plus") {
-                                viewModel.importBatchDirectoryUsingPanel()
-                            }
-                            viewerActionButton("导入 Zip", systemImage: "shippingbox") {
-                                viewModel.importBatchZipUsingPanel()
-                            }
-                            viewerActionButton("导出批次", systemImage: "square.and.arrow.up") {
-                                viewModel.exportSelectedBatch()
-                            }
-                            viewerActionButton("继续编辑", systemImage: "square.and.pencil") {
-                                viewModel.continueEditingSelectedBatch()
-                            }
-                            viewerActionButton("打开目录", systemImage: "folder") {
-                                viewModel.openSelectedBatchInFinder()
-                            }
-                            viewerActionButton("打开导出目录", systemImage: "folder.badge.gearshape") {
-                                viewModel.openSelectedBatchExportsDirectoryInFinder()
-                            }
-                            viewerActionButton("删除批次", systemImage: "trash") {
-                                viewModel.deleteSelectedBatch()
-                            }
-                            viewerActionButton("重新扫描", systemImage: "arrow.clockwise") {
-                                viewModel.reload()
-                            }
+                    Menu {
+                        Button("导入目录", systemImage: "folder.badge.plus") {
+                            viewModel.importBatchDirectoryUsingPanel()
                         }
-
-                        Menu {
-                            Button("导入目录", systemImage: "folder.badge.plus") {
-                                viewModel.importBatchDirectoryUsingPanel()
-                            }
-                            Button("导入 Zip", systemImage: "shippingbox") {
-                                viewModel.importBatchZipUsingPanel()
-                            }
-                            Button("导出批次", systemImage: "square.and.arrow.up") {
-                                viewModel.exportSelectedBatch()
-                            }
-                            Button("继续编辑", systemImage: "square.and.pencil") {
-                                viewModel.continueEditingSelectedBatch()
-                            }
-                            Button("打开目录", systemImage: "folder") {
-                                viewModel.openSelectedBatchInFinder()
-                            }
-                            Button("打开导出目录", systemImage: "folder.badge.gearshape") {
-                                viewModel.openSelectedBatchExportsDirectoryInFinder()
-                            }
-                            Button("删除批次", systemImage: "trash") {
-                                viewModel.deleteSelectedBatch()
-                            }
-                            Divider()
-                            Button("重新扫描", systemImage: "arrow.clockwise") {
-                                viewModel.reload()
-                            }
-                        } label: {
-                            Label("批次操作", systemImage: "ellipsis.circle")
-                                .labelStyle(.titleAndIcon)
+                        Button("导入 Zip", systemImage: "shippingbox") {
+                            viewModel.importBatchZipUsingPanel()
                         }
-                        .menuStyle(.borderlessButton)
+                        Button("导出批次", systemImage: "square.and.arrow.up") {
+                            viewModel.exportSelectedBatch()
+                        }
+                        Button("继续编辑", systemImage: "square.and.pencil") {
+                            viewModel.continueEditingSelectedBatch()
+                        }
+                        Button("打开目录", systemImage: "folder") {
+                            viewModel.openSelectedBatchInFinder()
+                        }
+                        Button("打开导出目录", systemImage: "folder.badge.gearshape") {
+                            viewModel.openSelectedBatchExportsDirectoryInFinder()
+                        }
+                        Button("删除批次", systemImage: "trash") {
+                            viewModel.deleteSelectedBatch()
+                        }
+                        Divider()
+                        Button("重新扫描", systemImage: "arrow.clockwise") {
+                            viewModel.reload()
+                        }
+                    } label: {
+                        Label("批次操作", systemImage: "ellipsis.circle")
+                            .labelStyle(.titleAndIcon)
                     }
+                    .menuStyle(.borderlessButton)
                 }
                 List(selection: $viewModel.selectedBatchID) {
                     ForEach(viewModel.batches, id: \.summary.id) { batch in
@@ -82,7 +53,7 @@ struct ViewerPage: View {
                                     TextField("", text: $viewModel.renamingBatchTitle)
                                         .textFieldStyle(.roundedBorder)
                                         .focused($focusedRenamingBatchID, equals: batch.summary.id)
-                                        .onChange(of: focusedRenamingBatchID) { _, newValue in
+                                        .onChange(of: focusedRenamingBatchID) { newValue in
                                             if viewModel.renamingBatchID == batch.summary.id, newValue != batch.summary.id {
                                                 viewModel.finishBatchRenameOnBlur()
                                             }
@@ -100,6 +71,33 @@ struct ViewerPage: View {
                                 .foregroundStyle(.secondary)
                         }
                         .tag(batch.summary.id)
+                        .contextMenu {
+                            Button("修改批次名") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.beginRenamingBatch(batch.summary.id)
+                            }
+                            Button("导出批次") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.exportSelectedBatch()
+                            }
+                            Button("继续编辑") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.continueEditingBatch(batch.summary.id)
+                            }
+                            Button("打开目录") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.openSelectedBatchInFinder()
+                            }
+                            Button("打开导出目录") {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.openSelectedBatchExportsDirectoryInFinder()
+                            }
+                            Divider()
+                            Button("删除批次", role: .destructive) {
+                                viewModel.selectedBatchID = batch.summary.id
+                                viewModel.deleteSelectedBatch()
+                            }
+                        }
                     }
                 }
                 .onSubmit {
@@ -107,23 +105,8 @@ struct ViewerPage: View {
                         viewModel.commitBatchRename()
                     }
                 }
-                .onChange(of: viewModel.renamingBatchID) { _, newValue in
+                .onChange(of: viewModel.renamingBatchID) { newValue in
                     focusedRenamingBatchID = newValue
-                }
-                .onKeyPress(.return) {
-                    guard viewModel.renamingBatchID == nil,
-                          viewModel.selectedBatchID != nil else {
-                        return .ignored
-                    }
-                    viewModel.beginRenamingSelectedBatch()
-                    return .handled
-                }
-                .onKeyPress(.escape) {
-                    guard viewModel.renamingBatchID != nil else {
-                        return .ignored
-                    }
-                    viewModel.cancelBatchRename()
-                    return .handled
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -154,7 +137,7 @@ struct ViewerPage: View {
                                     TextField("", text: $viewModel.renamingTitle)
                                         .textFieldStyle(.roundedBorder)
                                         .focused($focusedRenamingItemID, equals: item.id)
-                                        .onChange(of: focusedRenamingItemID) { _, newValue in
+                                        .onChange(of: focusedRenamingItemID) { newValue in
                                             if viewModel.renamingItemID == item.id, newValue != item.id {
                                                 viewModel.finishRenameOnBlur()
                                             }
@@ -174,29 +157,20 @@ struct ViewerPage: View {
                             }
                         }
                         .tag(item.id)
+                        .contextMenu {
+                            Button("修改") {
+                                viewModel.selectedItemID = item.id
+                                viewModel.beginRenamingItem(item.id)
+                            }
+                        }
                     }
                     .onSubmit {
                         if viewModel.renamingItemID != nil {
                             viewModel.commitRename()
                         }
                     }
-                    .onChange(of: viewModel.renamingItemID) { _, newValue in
+                    .onChange(of: viewModel.renamingItemID) { newValue in
                         focusedRenamingItemID = newValue
-                    }
-                    .onKeyPress(.return) {
-                        guard viewModel.renamingItemID == nil,
-                              viewModel.selectedItemID != nil else {
-                            return .ignored
-                        }
-                        viewModel.beginRenamingSelectedItem()
-                        return .handled
-                    }
-                    .onKeyPress(.escape) {
-                        guard viewModel.renamingItemID != nil else {
-                            return .ignored
-                        }
-                        viewModel.cancelRename()
-                        return .handled
                     }
                     Button("Copy Prompt") {
                         viewModel.copyPrompt()
@@ -206,7 +180,7 @@ struct ViewerPage: View {
                         viewModel.continueEditingSelectedBatch()
                     }
                 } else {
-                    ContentUnavailableView("暂无批次", systemImage: "archivebox")
+                    EmptyStateView(title: "暂无批次", systemImage: "archivebox")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -260,7 +234,7 @@ struct ViewerPage: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    ContentUnavailableView("未选择条目", systemImage: "doc.text")
+                    EmptyStateView(title: "未选择条目", systemImage: "doc.text")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

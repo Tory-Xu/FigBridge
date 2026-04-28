@@ -121,7 +121,7 @@ struct GeneratePage: View {
                     viewModel.commitRename()
                 }
             }
-            .onChange(of: viewModel.renamingItemID) { _, newValue in
+            .onChange(of: viewModel.renamingItemID) { newValue in
                 focusedRenamingItemID = newValue
             }
 
@@ -235,7 +235,7 @@ struct GeneratePage: View {
                         Spacer()
                     }
                 } else {
-                    ContentUnavailableView("未选择条目", systemImage: "sidebar.right")
+                    EmptyStateView(title: "未选择条目", systemImage: "sidebar.right")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -272,7 +272,7 @@ struct GeneratePage: View {
                                 TextField("", text: $viewModel.renamingTitle)
                                     .textFieldStyle(.roundedBorder)
                                     .focused($focusedRenamingItemID, equals: item.id)
-                                    .onChange(of: focusedRenamingItemID) { _, newValue in
+                                    .onChange(of: focusedRenamingItemID) { newValue in
                                         if viewModel.renamingItemID == item.id, newValue != item.id {
                                             viewModel.finishRenameOnBlur()
                                         }
@@ -334,21 +334,23 @@ struct GeneratePage: View {
                     }
                 }
                 .tag(item.id)
-            }
-            .onKeyPress(.return) {
-                guard viewModel.renamingItemID == nil,
-                      viewModel.selectedItemID != nil else {
-                    return .ignored
+                .contextMenu {
+                    Button("修改") {
+                        viewModel.selectedItemID = item.id
+                        viewModel.beginRenamingItem(item.id)
+                    }
+                    if viewModel.canRefreshResources(for: item) {
+                        Button("刷新资源") {
+                            viewModel.selectedItemID = item.id
+                            viewModel.reloadResources(for: item.id)
+                        }
+                    }
+                    Divider()
+                    Button("删除", role: .destructive) {
+                        viewModel.selectedItemID = item.id
+                        viewModel.deleteItem(id: item.id)
+                    }
                 }
-                viewModel.beginRenamingSelectedItem()
-                return .handled
-            }
-            .onKeyPress(.escape) {
-                guard viewModel.renamingItemID != nil else {
-                    return .ignored
-                }
-                viewModel.cancelRename()
-                return .handled
             }
         }
     }

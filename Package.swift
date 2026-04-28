@@ -5,7 +5,7 @@ let package = Package(
     name: "FigBridge",
     defaultLocalization: "zh-Hans",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v12)
     ],
     products: [
         .library(

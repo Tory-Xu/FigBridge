@@ -9,3 +9,4 @@ DerivedData/
 
 .worktrees/
 /dist
+/tmp

@@ -125,7 +125,8 @@ public struct ShellClient: Sendable {
                 }
                 if let timeout, timeout > 0 {
                     Task.detached {
-                        try? await Task.sleep(for: .seconds(timeout))
+                        let delay = UInt64(timeout * 1_000_000_000)
+                        try? await Task.sleep(nanoseconds: delay)
                         guard task.isRunning else {
                             return
                         }

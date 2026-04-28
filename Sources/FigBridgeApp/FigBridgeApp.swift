@@ -27,6 +27,5 @@ struct FigBridgeApp: App {
                 .environmentObject(appContainer)
                 .frame(minWidth: 1280, minHeight: 820)
         }
-        .windowResizability(.contentSize)
     }
 }

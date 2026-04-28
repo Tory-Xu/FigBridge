@@ -38,10 +38,16 @@ swift test
 ## 打包 DMG
 
 ```bash
-./scripts/package-dmg.sh
+./scripts/package-dmg.sh arm64
+./scripts/package-dmg.sh x86_64
 ```
 
-产物输出到 `dist/FigBridge.dmg`，脚本会先执行 `swift build -c release`，再组装 `FigBridge.app` 并打包为 `dmg`。
+产物分别输出到：
+
+- `dist/FigBridge-arm64.dmg`：Apple Silicon Mac
+- `dist/FigBridge-x86_64.dmg`：Intel Mac（含 macOS 12）
+
+脚本会先执行对应架构的 `swift build -c release --arch <arch>`，再组装 `FigBridge.app` 并打包为 `dmg`。打包前会校验二进制架构与最低系统版本仍为 `macOS 12.0`。
 
 ## 当前已实现的关键行为
 

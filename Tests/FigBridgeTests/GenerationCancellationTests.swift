@@ -28,7 +28,7 @@ struct GenerationCancellationTests {
             )
         }
 
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(nanoseconds: 50_000_000)
         task.cancel()
 
         do {
@@ -42,7 +42,7 @@ struct GenerationCancellationTests {
 
 private actor SlowMockAgentRunner: AgentRunning {
     func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
-        try await Task.sleep(for: .seconds(2))
+        try await Task.sleep(nanoseconds: 2_000_000_000)
         return AgentRunResult(output: "name: slow", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
     }
 }
