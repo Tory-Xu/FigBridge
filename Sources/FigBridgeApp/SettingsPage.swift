@@ -60,17 +60,21 @@ struct SettingsPage: View {
                     }
                     TextEditor(text: $viewModel.settings.promptTemplate)
                         .font(.body.monospaced())
-                        .frame(minHeight: 160)
+                        .frame(height: 180)
                 }
             }
 
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("预览图片格式", selection: $viewModel.settings.defaultExportFormat) {
+                        Text("预览图片格式")
+                            .font(.headline)
+                        Picker("", selection: $viewModel.settings.defaultExportFormat) {
                             Text("SVG").tag(ExportFormat.svg)
                             Text("PNG").tag(ExportFormat.png)
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
                     }
                 }
             }
