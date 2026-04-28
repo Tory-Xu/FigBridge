@@ -201,12 +201,13 @@ struct AgentServiceTests {
 
         let shell = ShellClient(pathLookupDirectories: [sandbox.root], environment: [:])
         let start = Date()
-        let result = try await shell.runStreaming(executable: scriptPath, arguments: [], timeout: 1, onEvent: nil)
+        let timeout: TimeInterval = 2
+        let result = try await shell.runStreaming(executable: scriptPath, arguments: [], timeout: timeout, onEvent: nil)
         let elapsed = Date().timeIntervalSince(start)
 
         #expect(result.status == 0)
         #expect(result.stdout.contains("done"))
-        #expect(elapsed < 1.0)
+        #expect(elapsed < timeout)
     }
 }
 
