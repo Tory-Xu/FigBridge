@@ -52,7 +52,8 @@ public final class BatchStore: Sendable {
         mode: GenerationMode,
         parallelism: Int,
         callStrategy: AgentCallStrategy,
-        items: [FigmaLinkItem]
+        items: [FigmaLinkItem],
+        runLogsByItemID: [UUID: GenerationRunLog]? = nil
     ) throws -> PersistedBatch {
         let batchDirectory = batchDirectory(for: id)
         guard FileManager.default.fileExists(atPath: batchDirectory.appendingPathComponent("batch.json").path) else {
@@ -69,7 +70,8 @@ public final class BatchStore: Sendable {
             mode: mode,
             parallelism: parallelism,
             callStrategy: callStrategy,
-            items: items
+            items: items,
+            runLogsByItemID: runLogsByItemID ?? existing.summary.runLogsByItemID
         )
         return try writeBatch(batch, into: batchDirectory)
     }
@@ -97,7 +99,8 @@ public final class BatchStore: Sendable {
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
             callStrategy: persisted.summary.callStrategy,
-            items: updatedItems
+            items: updatedItems,
+            runLogsByItemID: persisted.summary.runLogsByItemID
         )
     }
 
@@ -119,7 +122,8 @@ public final class BatchStore: Sendable {
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
             callStrategy: persisted.summary.callStrategy,
-            items: updatedItems
+            items: updatedItems,
+            runLogsByItemID: persisted.summary.runLogsByItemID
         )
     }
 
@@ -338,7 +342,8 @@ public final class BatchStore: Sendable {
             mode: normalizedBatch.mode,
             parallelism: normalizedBatch.parallelism,
             callStrategy: normalizedBatch.callStrategy,
-            items: normalizedBatch.items
+            items: normalizedBatch.items,
+            runLogsByItemID: normalizedBatch.runLogsByItemID
         )
         return try writeBatch(updatedBatch, into: batchDirectory)
     }

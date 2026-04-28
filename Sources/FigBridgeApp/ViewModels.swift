@@ -198,6 +198,7 @@ final class GenerateViewModel: ObservableObject {
     }
     @Published var selectedYAMLText: String?
     @Published var selectedRunLog: GenerationRunLog?
+    @Published var selectedRunLogText: String = ""
     @Published var renamingItemID: UUID?
     @Published var renamingTitle: String = ""
     @Published var renamingOriginalTitle: String = ""
@@ -332,6 +333,7 @@ final class GenerateViewModel: ObservableObject {
         selectedYAMLText = nil
         runLogsByItemID.removeAll()
         selectedRunLog = nil
+        selectedRunLogText = ""
         isRestoringWorkspace = false
         persistDraft(force: true)
     }
@@ -409,10 +411,24 @@ final class GenerateViewModel: ObservableObject {
 
         do {
             let persisted = try await task.value
+            let latestRunLogsByItemID = runLogsByItemID
             items = persisted.summary.items
             currentBatchID = persisted.summary.id
             currentBatchDirectory = persisted.batchDirectory.path
             syncOutputDirectoryPath()
+            let updatedPersisted = try batchStore.updateBatch(
+                id: persisted.summary.id,
+                sourceInputText: persisted.summary.sourceInputText,
+                agent: persisted.summary.agent,
+                promptSnapshot: persisted.summary.promptSnapshot,
+                outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
+                mode: persisted.summary.mode,
+                parallelism: persisted.summary.parallelism,
+                callStrategy: persisted.summary.callStrategy,
+                items: persisted.summary.items,
+                runLogsByItemID: latestRunLogsByItemID
+            )
+            runLogsByItemID = updatedPersisted.summary.runLogsByItemID
             loadSelectedYAML()
             refreshSelectedRunLog()
             validationMessage = "生成完成"
@@ -624,8 +640,9 @@ final class GenerateViewModel: ObservableObject {
         progressText = ""
         completedCount = 0
         selectedYAMLText = nil
-        runLogsByItemID.removeAll()
+        runLogsByItemID = persisted.summary.runLogsByItemID
         selectedRunLog = nil
+        selectedRunLogText = ""
         renamingItemID = nil
         renamingTitle = ""
         renamingOriginalTitle = ""
@@ -661,9 +678,12 @@ final class GenerateViewModel: ObservableObject {
     private func refreshSelectedRunLog() {
         guard let selectedItemID else {
             selectedRunLog = nil
+            selectedRunLogText = ""
             return
         }
-        selectedRunLog = runLogsByItemID[selectedItemID]
+        let log = runLogsByItemID[selectedItemID]
+        selectedRunLog = log
+        selectedRunLogText = log?.combinedConsoleText ?? ""
     }
 
     private func applyRunEvent(_ event: AgentRunEvent, for itemID: UUID, provider: AgentProvider) {
@@ -709,6 +729,7 @@ final class GenerateViewModel: ObservableObject {
         }
         if selectedItemID == itemID {
             selectedRunLog = log
+            selectedRunLogText = log.combinedConsoleText
         }
     }
 
@@ -733,6 +754,12 @@ final class GenerateViewModel: ObservableObject {
         currentBatchID = draft.currentBatchID
         currentBatchDirectory = draft.currentBatchDirectory
         syncOutputDirectoryPath()
+        if let draftBatchID = draft.currentBatchID,
+           let persisted = try? batchStore.loadBatch(id: draftBatchID) {
+            runLogsByItemID = persisted.summary.runLogsByItemID
+        } else {
+            runLogsByItemID.removeAll()
+        }
         loadSelectedYAML()
     }
 
@@ -927,6 +954,8 @@ final class ViewerViewModel: ObservableObject {
         }
     }
     @Published var selectedYAMLText: String?
+    @Published var selectedRunLog: GenerationRunLog?
+    @Published var selectedRunLogText: String = ""
     @Published var selectedSourceInputText: String?
     @Published var message: String = ""
     @Published var renamingBatchID: String?
@@ -1214,9 +1243,23 @@ final class ViewerViewModel: ObservableObject {
     private func loadSelectedYAML() {
         guard let yamlPath = selectedItem?.generatedYAMLPath else {
             selectedYAMLText = nil
+            loadSelectedRunLog()
             return
         }
         selectedYAMLText = try? String(contentsOfFile: yamlPath, encoding: .utf8)
+        loadSelectedRunLog()
+    }
+
+    private func loadSelectedRunLog() {
+        guard let batch = selectedBatch,
+              let selectedItemID else {
+            selectedRunLog = nil
+            selectedRunLogText = ""
+            return
+        }
+        let log = batch.summary.runLogsByItemID[selectedItemID]
+        selectedRunLog = log
+        selectedRunLogText = log?.combinedConsoleText ?? ""
     }
 
     private func loadSelectedSourceInput() {
@@ -1245,6 +1288,8 @@ final class ViewerViewModel: ObservableObject {
         guard let batch = selectedBatch else {
             selectedItemID = nil
             selectedYAMLText = nil
+            selectedRunLog = nil
+            selectedRunLogText = ""
             return
         }
 

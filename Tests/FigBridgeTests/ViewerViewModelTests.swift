@@ -54,6 +54,32 @@ struct ViewerViewModelTests {
 
         #expect(viewModel.selectedItem?.title == "Item B")
         #expect(viewModel.selectedYAMLText == "yaml-b")
+        #expect(viewModel.selectedRunLog?.stdout == "stdout-2")
+    }
+
+    @Test func selectingItemWithoutRunLogClearsSelectedRunLog() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let persisted = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a"),
+                makeItem(title: "Item B", nodeId: "1:2", yamlText: "yaml-b")
+            ],
+            runLogsByItemID: [:]
+        )
+
+        let viewModel = ViewerViewModel(batchStore: store)
+        viewModel.reload()
+        #expect(viewModel.selectedRunLog == nil)
+
+        viewModel.selectedItemID = persisted.summary.items[1].id
+        #expect(viewModel.selectedRunLog == nil)
     }
 
     @Test func switchingBatchSelectsFirstItemAndReloadsSourceAndYaml() throws {
@@ -442,7 +468,8 @@ struct ViewerViewModelTests {
         id: String,
         createdAt: Date,
         sourceInputText: String,
-        items: [FigmaLinkItem]
+        items: [FigmaLinkItem],
+        runLogsByItemID: [UUID: GenerationRunLog]? = nil
     ) throws -> PersistedBatch {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -458,7 +485,17 @@ struct ViewerViewModelTests {
             mode: .sequential,
             parallelism: 2,
             callStrategy: .singlePerLink,
-            items: items
+            items: items,
+            runLogsByItemID: runLogsByItemID ?? Dictionary(uniqueKeysWithValues: items.enumerated().map { index, item in
+                (item.id, GenerationRunLog(
+                    id: "run-\(index + 1)",
+                    isShared: false,
+                    provider: .codex,
+                    status: .finished,
+                    stdout: "stdout-\(index + 1)",
+                    stderr: ""
+                ))
+            })
         )
         var persisted = try store.createBatch(batch)
         var updatedItems = persisted.summary.items
@@ -485,7 +522,8 @@ struct ViewerViewModelTests {
             mode: persisted.summary.mode,
             parallelism: persisted.summary.parallelism,
             callStrategy: .singlePerLink,
-            items: updatedItems
+            items: updatedItems,
+            runLogsByItemID: persisted.summary.runLogsByItemID
         )
         let batchURL = persisted.batchDirectory.appendingPathComponent("batch.json")
         try encoder.encode(updatedBatch).write(to: batchURL)

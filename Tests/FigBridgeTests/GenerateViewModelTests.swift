@@ -702,6 +702,28 @@ struct GenerateViewModelTests {
         #expect(secondLog.combinedConsoleText.contains("shared-batch-line"))
     }
 
+    @Test func generatePersistsRunLogIntoBatchAndRestoresWhenLoadingBatch() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: StreamingRecordingAgentRunner(mode: .single))
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.items = [item]
+        harness.viewModel.selectedItemID = item.id
+
+        await harness.viewModel.generate()
+        let batchID = try #require(harness.viewModel.currentBatchID)
+        let persisted = try #require(try harness.batchStore.loadBatch(id: batchID))
+        let persistedLog = try #require(persisted.summary.runLogsByItemID[item.id])
+        #expect(persistedLog.combinedConsoleText.contains("stdout-line"))
+
+        harness.viewModel.startNewBatch()
+        harness.viewModel.loadBatchIntoWorkspace(persisted)
+        harness.viewModel.selectedItemID = item.id
+        let restoredLog = try #require(harness.viewModel.selectedRunLog)
+        #expect(restoredLog.combinedConsoleText.contains("stdout-line"))
+    }
+
     @Test func generateUsesFixedExportsDirectoryInsideBatch() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

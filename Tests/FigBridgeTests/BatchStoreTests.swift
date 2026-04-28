@@ -148,6 +148,51 @@ struct BatchStoreTests {
 
         let loaded = try #require(try store.loadBatch(id: "legacy-batch"))
         #expect(loaded.summary.parallelism == AppSettings.defaultValue.parallelism)
+        #expect(loaded.summary.runLogsByItemID.isEmpty)
+    }
+
+    @Test func persistsAndReloadsRunLogsByItemID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let log = GenerationRunLog(
+            id: "run-1",
+            isShared: false,
+            provider: .codex,
+            executablePath: "/usr/bin/env",
+            arguments: ["codex"],
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2),
+            exitCode: 0,
+            status: .finished,
+            stdout: "ok",
+            stderr: ""
+        )
+        let batch = GenerationBatch(
+            id: "batch-with-log",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item],
+            runLogsByItemID: [item.id: log]
+        )
+
+        _ = try store.createBatch(batch)
+        let loaded = try #require(try store.loadBatch(id: "batch-with-log"))
+        #expect(loaded.summary.runLogsByItemID[item.id] == log)
     }
 
     @Test func createBatchArchivesExternalImageAssetsIntoBatchDirectory() throws {
