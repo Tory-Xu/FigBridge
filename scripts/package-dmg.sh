@@ -17,6 +17,11 @@ RESOURCE_BUNDLE_NAME="FigBridge_FigBridgeApp.bundle"
 SOURCE_RESOURCES_DIR="$ROOT_DIR/Sources/FigBridgeApp/Resources"
 VOLUME_NAME="$APP_NAME"
 
+cleanup() {
+  rm -rf "$STAGE_DIR"
+}
+trap cleanup EXIT
+
 case "$TARGET_ARCH" in
   arm64|x86_64)
     ;;
