@@ -221,12 +221,14 @@ struct ViewerViewModelTests {
 
         let viewModel = ViewerViewModel(batchStore: store)
         viewModel.reload()
+        #expect(viewModel.selectedYAMLText == "yaml-a")
         viewModel.beginRenamingSelectedBatch()
         viewModel.renamingBatchTitle = "batch-renamed"
         viewModel.commitBatchRename()
 
         #expect(viewModel.selectedBatchID == "batch-renamed")
         #expect(viewModel.selectedBatch?.summary.id == "batch-renamed")
+        #expect(viewModel.selectedYAMLText == "yaml-a")
 
         #expect(try store.loadBatch(id: "batch-1") == nil)
         let reloaded = try #require(try store.loadBatch(id: "batch-renamed"))

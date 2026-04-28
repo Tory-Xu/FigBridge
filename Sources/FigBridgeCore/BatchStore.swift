@@ -143,20 +143,11 @@ public final class BatchStore: Sendable {
         }
 
         try FileManager.default.moveItem(at: persisted.batchDirectory, to: destinationDirectory)
-
-        let renamedBatch = GenerationBatch(
-            id: trimmedID,
-            createdAt: persisted.summary.createdAt,
-            agent: persisted.summary.agent,
-            promptSnapshot: persisted.summary.promptSnapshot,
-            sourceInputText: persisted.summary.sourceInputText,
-            outputDirectory: persisted.summary.outputDirectory,
-            mode: persisted.summary.mode,
-            parallelism: persisted.summary.parallelism,
-            callStrategy: persisted.summary.callStrategy,
-            items: persisted.summary.items
+        return try rewriteBatchID(
+            at: destinationDirectory,
+            to: trimmedID,
+            originalDirectory: persisted.batchDirectory
         )
-        return try writeBatch(renamedBatch, into: destinationDirectory)
     }
 
     public func scanBatches() throws -> [PersistedBatch] {
@@ -213,7 +204,11 @@ public final class BatchStore: Sendable {
         try ensureRootDirectoryExists()
         let destinationURL = uniqueImportedDirectoryName(for: sourceDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: sourceDirectory, to: destinationURL)
-        try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
+        try rewriteImportedBatchID(
+            at: destinationURL,
+            to: destinationURL.lastPathComponent,
+            originalDirectory: sourceDirectory
+        )
         return destinationURL
     }
 
@@ -244,7 +239,11 @@ public final class BatchStore: Sendable {
         try ensureRootDirectoryExists()
         let destinationURL = uniqueImportedDirectoryName(for: batchDirectory.lastPathComponent)
         try FileManager.default.copyItem(at: batchDirectory, to: destinationURL)
-        try rewriteImportedBatchID(at: destinationURL, to: destinationURL.lastPathComponent)
+        try rewriteImportedBatchID(
+            at: destinationURL,
+            to: destinationURL.lastPathComponent,
+            originalDirectory: batchDirectory
+        )
         return destinationURL
     }
 
@@ -318,21 +317,73 @@ public final class BatchStore: Sendable {
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
     }
 
-    private func rewriteImportedBatchID(at batchDirectory: URL, to batchID: String) throws {
+    private func rewriteImportedBatchID(at batchDirectory: URL, to batchID: String, originalDirectory: URL) throws {
+        _ = try rewriteBatchID(at: batchDirectory, to: batchID, originalDirectory: originalDirectory)
+    }
+
+    private func rewriteBatchID(at batchDirectory: URL, to batchID: String, originalDirectory: URL? = nil) throws -> PersistedBatch {
         let persisted = try loadBatch(at: batchDirectory)
+        let normalizedBatch = rebasePathsIfNeeded(
+            in: persisted.summary,
+            from: originalDirectory,
+            to: batchDirectory
+        )
         let updatedBatch = GenerationBatch(
             id: batchID,
-            createdAt: persisted.summary.createdAt,
-            agent: persisted.summary.agent,
-            promptSnapshot: persisted.summary.promptSnapshot,
-            sourceInputText: persisted.summary.sourceInputText,
-            outputDirectory: persisted.summary.outputDirectory,
-            mode: persisted.summary.mode,
-            parallelism: persisted.summary.parallelism,
-            callStrategy: persisted.summary.callStrategy,
-            items: persisted.summary.items
+            createdAt: normalizedBatch.createdAt,
+            agent: normalizedBatch.agent,
+            promptSnapshot: normalizedBatch.promptSnapshot,
+            sourceInputText: normalizedBatch.sourceInputText,
+            outputDirectory: normalizedBatch.outputDirectory,
+            mode: normalizedBatch.mode,
+            parallelism: normalizedBatch.parallelism,
+            callStrategy: normalizedBatch.callStrategy,
+            items: normalizedBatch.items
         )
-        _ = try writeBatch(updatedBatch, into: batchDirectory)
+        return try writeBatch(updatedBatch, into: batchDirectory)
+    }
+
+    private func rebasePathsIfNeeded(in batch: GenerationBatch, from sourceDirectory: URL?, to destinationDirectory: URL) -> GenerationBatch {
+        guard let sourceDirectory else {
+            return batch
+        }
+
+        let sourceBasePath = sourceDirectory.standardizedFileURL.path
+        let destinationBasePath = destinationDirectory.standardizedFileURL.path
+        guard sourceBasePath != destinationBasePath else {
+            return batch
+        }
+
+        var rebased = batch
+        rebased.outputDirectory = rebasePath(batch.outputDirectory, from: sourceBasePath, to: destinationBasePath) ?? batch.outputDirectory
+        rebased.items = batch.items.map { item in
+            var updatedItem = item
+            updatedItem.previewImagePath = rebasePath(item.previewImagePath, from: sourceBasePath, to: destinationBasePath)
+            updatedItem.generatedYAMLPath = rebasePath(item.generatedYAMLPath, from: sourceBasePath, to: destinationBasePath)
+            updatedItem.agentOutputPath = rebasePath(item.agentOutputPath, from: sourceBasePath, to: destinationBasePath)
+            updatedItem.resourceItems = item.resourceItems.map { resource in
+                var updatedResource = resource
+                updatedResource.localPath = rebasePath(resource.localPath, from: sourceBasePath, to: destinationBasePath)
+                return updatedResource
+            }
+            return updatedItem
+        }
+        return rebased
+    }
+
+    private func rebasePath(_ path: String?, from sourceBasePath: String, to destinationBasePath: String) -> String? {
+        guard let path, !path.isEmpty else {
+            return path
+        }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        if standardizedPath == sourceBasePath {
+            return destinationBasePath
+        }
+        guard standardizedPath.hasPrefix(sourceBasePath + "/") else {
+            return path
+        }
+        let suffix = standardizedPath.dropFirst(sourceBasePath.count)
+        return destinationBasePath + suffix
     }
 
     private func writeBatch(_ batch: GenerationBatch, into batchDirectory: URL) throws -> PersistedBatch {

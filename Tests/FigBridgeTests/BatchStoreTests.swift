@@ -211,4 +211,68 @@ struct BatchStoreTests {
         #expect(batchJSON.contains("items\\/"))
         #expect(!batchJSON.contains("__workspace__"))
     }
+
+    @Test func renameBatchRewritesItemPathsUsingDestinationDirectoryContext() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let batch = GenerationBatch(
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item]
+        )
+
+        let persisted = try store.createBatch(batch)
+        let itemDirectory = try #require(persisted.itemDirectories.first)
+        let assetsDirectory = itemDirectory.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
+
+        let yamlURL = itemDirectory.appendingPathComponent("generated.yaml")
+        let previewURL = assetsDirectory.appendingPathComponent("preview.png")
+        try "yaml-renamed".write(to: yamlURL, atomically: true, encoding: .utf8)
+        try Data("preview-renamed".utf8).write(to: previewURL)
+
+        var updatedItem = try #require(persisted.summary.items.first)
+        updatedItem.generatedYAMLPath = yamlURL.path
+        updatedItem.previewImagePath = previewURL.path
+
+        _ = try store.updateBatch(
+            id: persisted.summary.id,
+            sourceInputText: persisted.summary.sourceInputText,
+            agent: persisted.summary.agent,
+            promptSnapshot: persisted.summary.promptSnapshot,
+            outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
+            mode: persisted.summary.mode,
+            parallelism: persisted.summary.parallelism,
+            callStrategy: persisted.summary.callStrategy,
+            items: [updatedItem]
+        )
+
+        let renamed = try store.renameBatch(id: "batch-1", to: "batch-renamed")
+        let renamedItem = try #require(renamed.summary.items.first)
+        let renamedYamlPath = try #require(renamedItem.generatedYAMLPath)
+        let renamedPreviewPath = try #require(renamedItem.previewImagePath)
+
+        #expect(renamedYamlPath.hasPrefix(renamed.batchDirectory.path))
+        #expect(renamedPreviewPath.hasPrefix(renamed.batchDirectory.path))
+        #expect(!renamedYamlPath.contains("/batch-1/"))
+        #expect(!renamedPreviewPath.contains("/batch-1/"))
+        #expect(try String(contentsOfFile: renamedYamlPath, encoding: .utf8) == "yaml-renamed")
+        #expect(FileManager.default.fileExists(atPath: renamedPreviewPath))
+    }
 }
