@@ -235,6 +235,47 @@ struct ViewerViewModelTests {
         #expect(reloaded.summary.id == "batch-renamed")
     }
 
+    @Test func renameSelectedBatchNotifiesRenameCallbackWithOldAndNewBatchContext() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        _ = try makePersistedBatch(
+            store: store,
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 10),
+            sourceInputText: "source-1",
+            items: [
+                makeItem(title: "Item A", nodeId: "1:1", yamlText: "yaml-a")
+            ]
+        )
+
+        var callbackOldID: String?
+        var callbackOldDirectoryPath: String?
+        var callbackRenamedID: String?
+        var callbackRenamedDirectoryPath: String?
+        let viewModel = ViewerViewModel(
+            batchStore: store,
+            batchRenamed: { oldID, oldDirectory, renamed in
+                callbackOldID = oldID
+                callbackOldDirectoryPath = oldDirectory.standardizedFileURL.path
+                callbackRenamedID = renamed.summary.id
+                callbackRenamedDirectoryPath = renamed.batchDirectory.standardizedFileURL.path
+            }
+        )
+        viewModel.reload()
+        let selectedBeforeRename = try #require(viewModel.selectedBatch)
+
+        viewModel.beginRenamingSelectedBatch()
+        viewModel.renamingBatchTitle = "batch-renamed"
+        viewModel.commitBatchRename()
+
+        #expect(callbackOldID == "batch-1")
+        #expect(callbackOldDirectoryPath == selectedBeforeRename.batchDirectory.standardizedFileURL.path)
+        #expect(callbackRenamedID == "batch-renamed")
+        #expect(callbackRenamedDirectoryPath == sandbox.root.appendingPathComponent("batch-renamed", isDirectory: true).standardizedFileURL.path)
+    }
+
     @Test func continueEditingSelectedBatchCallsHandlerWithCurrentBatch() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }

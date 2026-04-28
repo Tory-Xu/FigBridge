@@ -635,6 +635,29 @@ final class GenerateViewModel: ObservableObject {
         preloadResourcesForAllItemsIfNeeded()
     }
 
+    func handleBatchRenamed(oldID: String, oldDirectory: URL, renamed: PersistedBatch) {
+        let matchesByID = currentBatchID == oldID
+        let matchesByDirectory = currentBatchDirectory.map {
+            URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL.path == oldDirectory.standardizedFileURL.path
+        } ?? false
+        guard matchesByID || matchesByDirectory else {
+            return
+        }
+
+        let previousSelectedItemID = selectedItemID
+        items = renamed.summary.items
+        if let previousSelectedItemID,
+           renamed.summary.items.contains(where: { $0.id == previousSelectedItemID }) {
+            selectedItemID = previousSelectedItemID
+        } else {
+            selectedItemID = renamed.summary.items.first?.id
+        }
+        currentBatchID = renamed.summary.id
+        currentBatchDirectory = renamed.batchDirectory.path
+        syncOutputDirectoryPath()
+        loadSelectedYAML()
+    }
+
     private func refreshSelectedRunLog() {
         guard let selectedItemID else {
             selectedRunLog = nil
@@ -915,11 +938,17 @@ final class ViewerViewModel: ObservableObject {
 
     private let batchStore: BatchStore
     private let continueEditing: (PersistedBatch) -> Void
+    private let batchRenamed: (_ oldID: String, _ oldDirectory: URL, _ renamed: PersistedBatch) -> Void
     private var isSynchronizingSelection = false
 
-    init(batchStore: BatchStore, continueEditing: @escaping (PersistedBatch) -> Void = { _ in }) {
+    init(
+        batchStore: BatchStore,
+        continueEditing: @escaping (PersistedBatch) -> Void = { _ in },
+        batchRenamed: @escaping (_ oldID: String, _ oldDirectory: URL, _ renamed: PersistedBatch) -> Void = { _, _, _ in }
+    ) {
         self.batchStore = batchStore
         self.continueEditing = continueEditing
+        self.batchRenamed = batchRenamed
     }
 
     var selectedBatch: PersistedBatch? {
@@ -1087,12 +1116,15 @@ final class ViewerViewModel: ObservableObject {
 
         let trimmedTitle = renamingBatchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
+            let oldBatchID = batch.summary.id
+            let oldBatchDirectory = batch.batchDirectory
             let persisted = try batchStore.renameBatch(id: batch.summary.id, to: trimmedTitle)
             if let index = batches.firstIndex(where: { $0.summary.id == batch.summary.id }) {
                 batches[index] = persisted
             }
             selectedBatchID = persisted.summary.id
             synchronizeSelectionForCurrentBatch(resetItemSelection: false)
+            batchRenamed(oldBatchID, oldBatchDirectory, persisted)
             message = "名称已更新"
         } catch {
             message = error.localizedDescription
