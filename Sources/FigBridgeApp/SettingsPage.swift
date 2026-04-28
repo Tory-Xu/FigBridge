@@ -67,9 +67,9 @@ struct SettingsPage: View {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Picker("默认导出格式", selection: $viewModel.settings.defaultExportFormat) {
-                            Text("PNG").tag(ExportFormat.png)
+                        Picker("预览图片格式", selection: $viewModel.settings.defaultExportFormat) {
                             Text("SVG").tag(ExportFormat.svg)
+                            Text("PNG").tag(ExportFormat.png)
                         }
                     }
 

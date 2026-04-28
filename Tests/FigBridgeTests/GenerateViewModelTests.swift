@@ -453,12 +453,14 @@ struct GenerateViewModelTests {
         #expect(harness.viewModel.selectedItemID == nil)
         #expect(harness.viewModel.currentBatchID == nil)
         #expect(harness.viewModel.currentBatchDirectory == nil)
+        #expect(harness.viewModel.outputDirectoryPath == "当前批次/exports")
 
         let draft = try #require(harness.draftStore.load())
         #expect(draft.inputText.isEmpty)
         #expect(draft.items.isEmpty)
         #expect(draft.currentBatchID == nil)
         #expect(draft.currentBatchDirectory == nil)
+        #expect(draft.outputDirectoryPath == "当前批次/exports")
     }
 
     @Test func loadingExistingBatchIntoWorkspaceRestoresEditableContext() throws {

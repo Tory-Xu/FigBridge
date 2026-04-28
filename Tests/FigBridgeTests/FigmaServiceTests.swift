@@ -96,7 +96,7 @@ struct FigmaServiceTests {
         )
         let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token", previewFormat: .png)
 
         #expect(resolved.nodeName == "Login Card")
         #expect(resolved.previewStatus == .success)
@@ -106,6 +106,64 @@ struct FigmaServiceTests {
         #expect(resolved.resourceItems.allSatisfy { $0.localPath != nil })
         #expect(resolved.previewImagePath?.contains("/items/item-1/assets/preview.png") == true)
         #expect(resolved.resourceItems.allSatisfy { $0.localPath?.contains("/items/item-1/assets/") == true })
+    }
+
+    @Test func usesConfiguredPreviewFormatForRequestAndCacheFilename() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+        let transport = MockFigmaTransport(responses: [
+            MockHTTPResponse(
+                path: "/v1/files/FILE123/nodes",
+                query: ["ids": "1:2"],
+                statusCode: 200,
+                body: """
+                {
+                  "nodes": {
+                    "1:2": {
+                      "document": {
+                        "id": "1:2",
+                        "name": "Login Card",
+                        "fills": [],
+                        "children": []
+                      }
+                    }
+                  }
+                }
+                """
+            ),
+            MockHTTPResponse(
+                path: "/v1/images/FILE123",
+                query: ["ids": "1:2", "format": "svg", "scale": "2"],
+                statusCode: 200,
+                body: #"{"images":{"1:2":"https://cdn.figma.test/preview.svg"}}"#
+            ),
+            MockHTTPResponse(
+                path: "/v1/files/FILE123/images",
+                query: [:],
+                statusCode: 200,
+                body: #"{"meta":{"images":{}}}"#
+            ),
+            MockHTTPResponse(
+                url: "https://cdn.figma.test/preview.svg",
+                statusCode: 200,
+                data: Data("<svg/>".utf8)
+            )
+        ])
+        let service = FigmaService(baseDirectory: sandbox.root, transport: transport)
+        let item = FigmaLinkItem(
+            rawInputLine: "登录卡片",
+            title: "登录卡片",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
+
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token", previewFormat: .svg)
+
+        let requests = await transport.recordedRequests()
+        #expect(requests.contains { $0.path == "/v1/images/FILE123" && $0.query["format"] == "svg" })
+        #expect(resolved.previewImagePath?.hasSuffix("/preview.svg") == true)
     }
 
     @Test func allowsPreviewFailureWithoutBlockingResources() async throws {
@@ -160,7 +218,7 @@ struct FigmaServiceTests {
         )
         let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token", previewFormat: .png)
 
         #expect(resolved.previewStatus == .failed)
         #expect(resolved.resourceStatus == .success)
@@ -218,7 +276,7 @@ struct FigmaServiceTests {
         )
         let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token", previewFormat: .png)
 
         #expect(resolved.previewStatus == .success)
         #expect(resolved.resourceStatus == .success)
@@ -239,7 +297,7 @@ struct FigmaServiceTests {
         )
         let itemDirectory = sandbox.root.appendingPathComponent("batch-1/items/item-1", isDirectory: true)
 
-        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token")
+        let resolved = try await service.loadPreviewAndResources(for: item, itemDirectory: itemDirectory, token: "token", previewFormat: .png)
 
         #expect(resolved.previewStatus == .success)
         #expect(resolved.resourceStatus == .failed)

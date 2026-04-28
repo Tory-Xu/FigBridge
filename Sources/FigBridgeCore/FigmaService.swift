@@ -58,13 +58,29 @@ public actor FigmaService {
         _ = try await performJSONRequest(request)
     }
 
-    public func loadPreviewAndResources(for item: FigmaLinkItem, itemDirectory: URL, token: String) async throws -> FigmaLinkItem {
+    public func loadPreviewAndResources(
+        for item: FigmaLinkItem,
+        itemDirectory: URL,
+        token: String,
+        previewFormat: ExportFormat
+    ) async throws -> FigmaLinkItem {
         let normalizedToken = try normalizedToken(token)
-        let payload = try await fetchNodePayload(fileKey: item.fileKey, nodeId: item.nodeId, token: normalizedToken)
-        return try await cachePayload(payload, for: item, itemDirectory: itemDirectory, token: normalizedToken)
+        let payload = try await fetchNodePayload(
+            fileKey: item.fileKey,
+            nodeId: item.nodeId,
+            token: normalizedToken,
+            previewFormat: previewFormat
+        )
+        return try await cachePayload(
+            payload,
+            for: item,
+            itemDirectory: itemDirectory,
+            token: normalizedToken,
+            previewFormat: previewFormat
+        )
     }
 
-    private func fetchNodePayload(fileKey: String, nodeId: String, token: String) async throws -> FigmaNodePayload {
+    private func fetchNodePayload(fileKey: String, nodeId: String, token: String, previewFormat: ExportFormat) async throws -> FigmaNodePayload {
         let nodeRequest = try makeAPIRequest(
             path: "/v1/files/\(fileKey)/nodes",
             queryItems: [URLQueryItem(name: "ids", value: nodeId)],
@@ -74,7 +90,7 @@ public actor FigmaService {
             path: "/v1/images/\(fileKey)",
             queryItems: [
                 URLQueryItem(name: "ids", value: nodeId),
-                URLQueryItem(name: "format", value: "png"),
+                URLQueryItem(name: "format", value: previewFormat.rawValue),
                 URLQueryItem(name: "scale", value: "2")
             ],
             token: token
@@ -117,7 +133,13 @@ public actor FigmaService {
         )
     }
 
-    private func cachePayload(_ payload: FigmaNodePayload, for item: FigmaLinkItem, itemDirectory: URL, token: String) async throws -> FigmaLinkItem {
+    private func cachePayload(
+        _ payload: FigmaNodePayload,
+        for item: FigmaLinkItem,
+        itemDirectory: URL,
+        token: String,
+        previewFormat: ExportFormat
+    ) async throws -> FigmaLinkItem {
         let cacheDirectory = itemDirectory.appendingPathComponent("assets", isDirectory: true)
         try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
 
@@ -126,7 +148,8 @@ public actor FigmaService {
 
         if let previewURL = payload.previewURL {
             do {
-                let previewPath = try await downloadFile(from: previewURL, token: token, destinationDirectory: cacheDirectory, filename: "preview.png")
+                let previewFilename = "preview.\(previewFormat.rawValue)"
+                let previewPath = try await downloadFile(from: previewURL, token: token, destinationDirectory: cacheDirectory, filename: previewFilename)
                 resolved.previewImagePath = previewPath.path
                 resolved.previewStatus = .success
             } catch {

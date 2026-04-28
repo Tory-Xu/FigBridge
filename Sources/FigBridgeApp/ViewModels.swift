@@ -319,6 +319,8 @@ final class GenerateViewModel: ObservableObject {
     func startNewBatch() {
         cancelGeneration()
         cancelAllResourceLoads()
+        currentBatchID = nil
+        currentBatchDirectory = nil
         isRestoringWorkspace = true
         applyDefaultWorkspaceSettings()
         inputText = ""
@@ -328,8 +330,6 @@ final class GenerateViewModel: ObservableObject {
         exportMessage = ""
         progressText = ""
         completedCount = 0
-        currentBatchID = nil
-        currentBatchDirectory = nil
         selectedYAMLText = nil
         runLogsByItemID.removeAll()
         selectedRunLog = nil
@@ -580,7 +580,9 @@ final class GenerateViewModel: ObservableObject {
               let previewPath = item.previewImagePath else {
             return
         }
-        exportLocalFile(at: URL(fileURLWithPath: previewPath), preferredName: "\(item.nodeId.replacingOccurrences(of: ":", with: "-"))-preview.png")
+        let previewURL = URL(fileURLWithPath: previewPath)
+        let ext = previewURL.pathExtension.isEmpty ? "png" : previewURL.pathExtension
+        exportLocalFile(at: previewURL, preferredName: "\(item.nodeId.replacingOccurrences(of: ":", with: "-"))-preview.\(ext)")
     }
 
     func openSelectedPreviewImage() {
@@ -867,7 +869,13 @@ final class GenerateViewModel: ObservableObject {
 
         do {
             let itemDirectory = resolvedItemDirectory(for: items[index])
-            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], itemDirectory: itemDirectory, token: token)
+            let previewFormat = settingsViewModel.settings.defaultExportFormat
+            let resolved = try await figmaService.loadPreviewAndResources(
+                for: items[index],
+                itemDirectory: itemDirectory,
+                token: token,
+                previewFormat: previewFormat
+            )
             guard !Task.isCancelled else {
                 return
             }

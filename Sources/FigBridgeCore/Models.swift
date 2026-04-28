@@ -133,7 +133,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaultValue = AppSettings(
         promptTemplate: AppSettings.defaultPrompt,
         figmaToken: "",
-        defaultExportFormat: .svg,
+        defaultExportFormat: .png,
         defaultGenerationMode: .sequential,
         parallelism: 2,
         defaultAgentCallStrategy: .singleForBatch
