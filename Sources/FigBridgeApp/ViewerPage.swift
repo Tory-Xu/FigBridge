@@ -27,20 +27,11 @@ struct ViewerPage: View {
                         Button("导入 Zip", systemImage: "shippingbox") {
                             viewModel.importBatchZipUsingPanel()
                         }
-                        Button("导出批次", systemImage: "square.and.arrow.up") {
-                            viewModel.exportSelectedBatch()
-                        }
-                        Button("继续编辑", systemImage: "square.and.pencil") {
-                            viewModel.continueEditingSelectedBatch()
-                        }
                         Button("打开目录", systemImage: "folder") {
                             viewModel.openSelectedBatchInFinder()
                         }
                         Button("打开导出目录", systemImage: "folder.badge.gearshape") {
                             viewModel.openSelectedBatchExportsDirectoryInFinder()
-                        }
-                        Button("删除批次", systemImage: "trash") {
-                            viewModel.deleteSelectedBatch()
                         }
                         Divider()
                         Button("重新扫描", systemImage: "arrow.clockwise") {
