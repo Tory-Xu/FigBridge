@@ -26,4 +26,9 @@ enum DesktopSupport {
     static func openInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
+
+    @MainActor
+    static func openFile(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
 }

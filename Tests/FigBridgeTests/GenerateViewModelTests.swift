@@ -453,12 +453,14 @@ struct GenerateViewModelTests {
         #expect(harness.viewModel.selectedItemID == nil)
         #expect(harness.viewModel.currentBatchID == nil)
         #expect(harness.viewModel.currentBatchDirectory == nil)
+        #expect(harness.viewModel.outputDirectoryPath == "当前批次/exports")
 
         let draft = try #require(harness.draftStore.load())
         #expect(draft.inputText.isEmpty)
         #expect(draft.items.isEmpty)
         #expect(draft.currentBatchID == nil)
         #expect(draft.currentBatchDirectory == nil)
+        #expect(draft.outputDirectoryPath == "当前批次/exports")
     }
 
     @Test func loadingExistingBatchIntoWorkspaceRestoresEditableContext() throws {
@@ -502,6 +504,111 @@ struct GenerateViewModelTests {
         #expect(draft.currentBatchID == "batch-1")
         #expect(draft.parallelism == 5)
         #expect(draft.callStrategy == .singlePerLink)
+    }
+
+    @Test func handleBatchRenamedSyncsCurrentEditingBatchByIDAndPersistsDraft() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        var item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE1/A?node-id=1-2",
+            fileKey: "FILE1",
+            nodeId: "1:2"
+        )
+        let oldBatchDirectory = sandbox.root.appendingPathComponent("batch-1", isDirectory: true)
+        let oldItemsDirectory = oldBatchDirectory.appendingPathComponent("items", isDirectory: true)
+        let oldItemDirectory = oldItemsDirectory.appendingPathComponent("\(item.id.uuidString.lowercased())-\(item.nodeId.replacingOccurrences(of: ":", with: "-"))", isDirectory: true)
+        let oldYamlPath = oldItemDirectory.appendingPathComponent("generated.yaml").path
+        item.generatedYAMLPath = oldYamlPath
+        let persisted = try harness.batchStore.createBatch(GenerationBatch(
+            id: "batch-1",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "batch prompt",
+            sourceInputText: "batch input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item]
+        ))
+        try FileManager.default.createDirectory(at: oldItemDirectory, withIntermediateDirectories: true)
+        try "name: 1:2".write(toFile: oldYamlPath, atomically: true, encoding: .utf8)
+        harness.viewModel.loadBatchIntoWorkspace(persisted)
+
+        let renamed = try harness.batchStore.renameBatch(id: "batch-1", to: "batch-renamed")
+        harness.viewModel.handleBatchRenamed(
+            oldID: "batch-1",
+            oldDirectory: persisted.batchDirectory,
+            renamed: renamed
+        )
+
+        #expect(harness.viewModel.currentBatchID == "batch-renamed")
+        #expect(harness.viewModel.currentBatchDirectory == renamed.batchDirectory.path)
+        #expect(harness.viewModel.outputDirectoryPath == renamed.batchDirectory.appendingPathComponent("exports", isDirectory: true).path)
+        #expect(harness.viewModel.processedItems.count == 1)
+        let renamedItem = try #require(harness.viewModel.items.first)
+        let renamedYamlPath = try #require(renamedItem.generatedYAMLPath)
+        #expect(!renamedYamlPath.contains("/batch-1/"))
+        #expect(renamedYamlPath.contains("/batch-renamed/"))
+        #expect(harness.viewModel.selectedYAMLText == "name: 1:2")
+        let draft = try #require(harness.draftStore.load())
+        #expect(draft.currentBatchID == "batch-renamed")
+        #expect(draft.currentBatchDirectory == renamed.batchDirectory.path)
+    }
+
+    @Test func handleBatchRenamedDoesNotSyncWhenCurrentBatchDiffers() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE1/A?node-id=1-2",
+            fileKey: "FILE1",
+            nodeId: "1:2"
+        )
+        let target = try harness.batchStore.createBatch(GenerationBatch(
+            id: "batch-target",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "target prompt",
+            sourceInputText: "target input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item]
+        ))
+        let other = try harness.batchStore.createBatch(GenerationBatch(
+            id: "batch-other",
+            createdAt: Date(timeIntervalSince1970: 1),
+            agent: .codex,
+            promptSnapshot: "other prompt",
+            sourceInputText: "other input",
+            outputDirectory: sandbox.root.path,
+            mode: .parallel,
+            parallelism: 3,
+            callStrategy: .singleForBatch,
+            items: [item]
+        ))
+        harness.viewModel.loadBatchIntoWorkspace(other)
+        let previousOutputDirectoryPath = harness.viewModel.outputDirectoryPath
+
+        let renamedTarget = try harness.batchStore.renameBatch(id: "batch-target", to: "batch-target-renamed")
+        harness.viewModel.handleBatchRenamed(
+            oldID: "batch-target",
+            oldDirectory: target.batchDirectory,
+            renamed: renamedTarget
+        )
+
+        #expect(harness.viewModel.currentBatchID == "batch-other")
+        #expect(harness.viewModel.currentBatchDirectory == other.batchDirectory.path)
+        #expect(harness.viewModel.outputDirectoryPath == previousOutputDirectoryPath)
     }
 
     @Test func selectingAgentImmediatelyPersistsToSettingsStore() throws {
@@ -595,6 +702,28 @@ struct GenerateViewModelTests {
         #expect(firstLog.isShared)
         #expect(secondLog.isShared)
         #expect(secondLog.combinedConsoleText.contains("shared-batch-line"))
+    }
+
+    @Test func generatePersistsRunLogIntoBatchAndRestoresWhenLoadingBatch() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let harness = try GenerateViewModelHarness(rootDirectory: sandbox.root, runner: StreamingRecordingAgentRunner(mode: .single))
+        let item = FigmaLinkItem(rawInputLine: "one", title: "One", url: "https://www.figma.com/design/FILE1/A?node-id=1-2", fileKey: "FILE1", nodeId: "1:2")
+        harness.viewModel.items = [item]
+        harness.viewModel.selectedItemID = item.id
+
+        await harness.viewModel.generate()
+        let batchID = try #require(harness.viewModel.currentBatchID)
+        let persisted = try #require(try harness.batchStore.loadBatch(id: batchID))
+        let persistedLog = try #require(persisted.summary.runLogsByItemID[item.id])
+        #expect(persistedLog.combinedConsoleText.contains("stdout-line"))
+
+        harness.viewModel.startNewBatch()
+        harness.viewModel.loadBatchIntoWorkspace(persisted)
+        harness.viewModel.selectedItemID = item.id
+        let restoredLog = try #require(harness.viewModel.selectedRunLog)
+        #expect(restoredLog.combinedConsoleText.contains("stdout-line"))
     }
 
     @Test func generateUsesFixedExportsDirectoryInsideBatch() async throws {

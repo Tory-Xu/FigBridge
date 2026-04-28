@@ -198,6 +198,7 @@ final class GenerateViewModel: ObservableObject {
     }
     @Published var selectedYAMLText: String?
     @Published var selectedRunLog: GenerationRunLog?
+    @Published var selectedRunLogText: String = ""
     @Published var renamingItemID: UUID?
     @Published var renamingTitle: String = ""
     @Published var renamingOriginalTitle: String = ""
@@ -318,6 +319,8 @@ final class GenerateViewModel: ObservableObject {
     func startNewBatch() {
         cancelGeneration()
         cancelAllResourceLoads()
+        currentBatchID = nil
+        currentBatchDirectory = nil
         isRestoringWorkspace = true
         applyDefaultWorkspaceSettings()
         inputText = ""
@@ -327,11 +330,10 @@ final class GenerateViewModel: ObservableObject {
         exportMessage = ""
         progressText = ""
         completedCount = 0
-        currentBatchID = nil
-        currentBatchDirectory = nil
         selectedYAMLText = nil
         runLogsByItemID.removeAll()
         selectedRunLog = nil
+        selectedRunLogText = ""
         isRestoringWorkspace = false
         persistDraft(force: true)
     }
@@ -409,10 +411,24 @@ final class GenerateViewModel: ObservableObject {
 
         do {
             let persisted = try await task.value
+            let latestRunLogsByItemID = runLogsByItemID
             items = persisted.summary.items
             currentBatchID = persisted.summary.id
             currentBatchDirectory = persisted.batchDirectory.path
             syncOutputDirectoryPath()
+            let updatedPersisted = try batchStore.updateBatch(
+                id: persisted.summary.id,
+                sourceInputText: persisted.summary.sourceInputText,
+                agent: persisted.summary.agent,
+                promptSnapshot: persisted.summary.promptSnapshot,
+                outputDirectory: URL(fileURLWithPath: persisted.summary.outputDirectory, isDirectory: true),
+                mode: persisted.summary.mode,
+                parallelism: persisted.summary.parallelism,
+                callStrategy: persisted.summary.callStrategy,
+                items: persisted.summary.items,
+                runLogsByItemID: latestRunLogsByItemID
+            )
+            runLogsByItemID = updatedPersisted.summary.runLogsByItemID
             loadSelectedYAML()
             refreshSelectedRunLog()
             validationMessage = "生成完成"
@@ -564,7 +580,21 @@ final class GenerateViewModel: ObservableObject {
               let previewPath = item.previewImagePath else {
             return
         }
-        exportLocalFile(at: URL(fileURLWithPath: previewPath), preferredName: "\(item.nodeId.replacingOccurrences(of: ":", with: "-"))-preview.png")
+        let previewURL = URL(fileURLWithPath: previewPath)
+        let ext = previewURL.pathExtension.isEmpty ? "png" : previewURL.pathExtension
+        exportLocalFile(at: previewURL, preferredName: "\(item.nodeId.replacingOccurrences(of: ":", with: "-"))-preview.\(ext)")
+    }
+
+    func openSelectedPreviewImage() {
+        guard let previewPath = selectedItem?.previewImagePath else {
+            return
+        }
+        let previewURL = URL(fileURLWithPath: previewPath)
+        guard FileManager.default.fileExists(atPath: previewURL.path) else {
+            exportMessage = "原图不存在: \(previewURL.lastPathComponent)"
+            return
+        }
+        DesktopSupport.openFile(previewURL)
     }
 
     func exportResource(_ resource: FigmaResourceItem) {
@@ -624,8 +654,9 @@ final class GenerateViewModel: ObservableObject {
         progressText = ""
         completedCount = 0
         selectedYAMLText = nil
-        runLogsByItemID.removeAll()
+        runLogsByItemID = persisted.summary.runLogsByItemID
         selectedRunLog = nil
+        selectedRunLogText = ""
         renamingItemID = nil
         renamingTitle = ""
         renamingOriginalTitle = ""
@@ -635,12 +666,38 @@ final class GenerateViewModel: ObservableObject {
         preloadResourcesForAllItemsIfNeeded()
     }
 
+    func handleBatchRenamed(oldID: String, oldDirectory: URL, renamed: PersistedBatch) {
+        let matchesByID = currentBatchID == oldID
+        let matchesByDirectory = currentBatchDirectory.map {
+            URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL.path == oldDirectory.standardizedFileURL.path
+        } ?? false
+        guard matchesByID || matchesByDirectory else {
+            return
+        }
+
+        let previousSelectedItemID = selectedItemID
+        items = renamed.summary.items
+        if let previousSelectedItemID,
+           renamed.summary.items.contains(where: { $0.id == previousSelectedItemID }) {
+            selectedItemID = previousSelectedItemID
+        } else {
+            selectedItemID = renamed.summary.items.first?.id
+        }
+        currentBatchID = renamed.summary.id
+        currentBatchDirectory = renamed.batchDirectory.path
+        syncOutputDirectoryPath()
+        loadSelectedYAML()
+    }
+
     private func refreshSelectedRunLog() {
         guard let selectedItemID else {
             selectedRunLog = nil
+            selectedRunLogText = ""
             return
         }
-        selectedRunLog = runLogsByItemID[selectedItemID]
+        let log = runLogsByItemID[selectedItemID]
+        selectedRunLog = log
+        selectedRunLogText = log?.combinedConsoleText ?? ""
     }
 
     private func applyRunEvent(_ event: AgentRunEvent, for itemID: UUID, provider: AgentProvider) {
@@ -686,6 +743,7 @@ final class GenerateViewModel: ObservableObject {
         }
         if selectedItemID == itemID {
             selectedRunLog = log
+            selectedRunLogText = log.combinedConsoleText
         }
     }
 
@@ -710,6 +768,12 @@ final class GenerateViewModel: ObservableObject {
         currentBatchID = draft.currentBatchID
         currentBatchDirectory = draft.currentBatchDirectory
         syncOutputDirectoryPath()
+        if let draftBatchID = draft.currentBatchID,
+           let persisted = try? batchStore.loadBatch(id: draftBatchID) {
+            runLogsByItemID = persisted.summary.runLogsByItemID
+        } else {
+            runLogsByItemID.removeAll()
+        }
         loadSelectedYAML()
     }
 
@@ -805,7 +869,13 @@ final class GenerateViewModel: ObservableObject {
 
         do {
             let itemDirectory = resolvedItemDirectory(for: items[index])
-            let resolved = try await figmaService.loadPreviewAndResources(for: items[index], itemDirectory: itemDirectory, token: token)
+            let previewFormat = settingsViewModel.settings.defaultExportFormat
+            let resolved = try await figmaService.loadPreviewAndResources(
+                for: items[index],
+                itemDirectory: itemDirectory,
+                token: token,
+                previewFormat: previewFormat
+            )
             guard !Task.isCancelled else {
                 return
             }
@@ -904,6 +974,8 @@ final class ViewerViewModel: ObservableObject {
         }
     }
     @Published var selectedYAMLText: String?
+    @Published var selectedRunLog: GenerationRunLog?
+    @Published var selectedRunLogText: String = ""
     @Published var selectedSourceInputText: String?
     @Published var message: String = ""
     @Published var renamingBatchID: String?
@@ -915,11 +987,17 @@ final class ViewerViewModel: ObservableObject {
 
     private let batchStore: BatchStore
     private let continueEditing: (PersistedBatch) -> Void
+    private let batchRenamed: (_ oldID: String, _ oldDirectory: URL, _ renamed: PersistedBatch) -> Void
     private var isSynchronizingSelection = false
 
-    init(batchStore: BatchStore, continueEditing: @escaping (PersistedBatch) -> Void = { _ in }) {
+    init(
+        batchStore: BatchStore,
+        continueEditing: @escaping (PersistedBatch) -> Void = { _ in },
+        batchRenamed: @escaping (_ oldID: String, _ oldDirectory: URL, _ renamed: PersistedBatch) -> Void = { _, _, _ in }
+    ) {
         self.batchStore = batchStore
         self.continueEditing = continueEditing
+        self.batchRenamed = batchRenamed
     }
 
     var selectedBatch: PersistedBatch? {
@@ -1063,6 +1141,18 @@ final class ViewerViewModel: ObservableObject {
         continueEditing(batch)
     }
 
+    func openSelectedPreviewImage() {
+        guard let previewPath = selectedItem?.previewImagePath else {
+            return
+        }
+        let previewURL = URL(fileURLWithPath: previewPath)
+        guard FileManager.default.fileExists(atPath: previewURL.path) else {
+            message = "原图不存在: \(previewURL.lastPathComponent)"
+            return
+        }
+        DesktopSupport.openFile(previewURL)
+    }
+
     func beginRenamingSelectedBatch() {
         guard let batch = selectedBatch else {
             return
@@ -1087,12 +1177,15 @@ final class ViewerViewModel: ObservableObject {
 
         let trimmedTitle = renamingBatchTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
+            let oldBatchID = batch.summary.id
+            let oldBatchDirectory = batch.batchDirectory
             let persisted = try batchStore.renameBatch(id: batch.summary.id, to: trimmedTitle)
             if let index = batches.firstIndex(where: { $0.summary.id == batch.summary.id }) {
                 batches[index] = persisted
             }
             selectedBatchID = persisted.summary.id
             synchronizeSelectionForCurrentBatch(resetItemSelection: false)
+            batchRenamed(oldBatchID, oldBatchDirectory, persisted)
             message = "名称已更新"
         } catch {
             message = error.localizedDescription
@@ -1182,9 +1275,23 @@ final class ViewerViewModel: ObservableObject {
     private func loadSelectedYAML() {
         guard let yamlPath = selectedItem?.generatedYAMLPath else {
             selectedYAMLText = nil
+            loadSelectedRunLog()
             return
         }
         selectedYAMLText = try? String(contentsOfFile: yamlPath, encoding: .utf8)
+        loadSelectedRunLog()
+    }
+
+    private func loadSelectedRunLog() {
+        guard let batch = selectedBatch,
+              let selectedItemID else {
+            selectedRunLog = nil
+            selectedRunLogText = ""
+            return
+        }
+        let log = batch.summary.runLogsByItemID[selectedItemID]
+        selectedRunLog = log
+        selectedRunLogText = log?.combinedConsoleText ?? ""
     }
 
     private func loadSelectedSourceInput() {
@@ -1213,6 +1320,8 @@ final class ViewerViewModel: ObservableObject {
         guard let batch = selectedBatch else {
             selectedItemID = nil
             selectedYAMLText = nil
+            selectedRunLog = nil
+            selectedRunLogText = ""
             return
         }
 

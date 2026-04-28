@@ -42,9 +42,15 @@ final class AppContainer: ObservableObject {
             figmaService: figmaService,
             draftStore: draftStore
         )
-        let viewerViewModel = ViewerViewModel(batchStore: batchStore) { batch in
-            tabSelectionCoordinator.onEditBatch?(batch)
-        }
+        let viewerViewModel = ViewerViewModel(
+            batchStore: batchStore,
+            continueEditing: { batch in
+                tabSelectionCoordinator.onEditBatch?(batch)
+            },
+            batchRenamed: { [weak generateViewModel] oldID, oldDirectory, renamed in
+                generateViewModel?.handleBatchRenamed(oldID: oldID, oldDirectory: oldDirectory, renamed: renamed)
+            }
+        )
 
         self.settingsViewModel = settingsViewModel
         self.generateViewModel = generateViewModel

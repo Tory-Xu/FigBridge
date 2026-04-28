@@ -2,9 +2,16 @@ import SwiftUI
 import FigBridgeCore
 
 struct ViewerPage: View {
+    private enum DetailSection {
+        case none
+        case runLog
+        case yaml
+    }
+
     @ObservedObject var viewModel: ViewerViewModel
     @FocusState private var focusedRenamingBatchID: String?
     @FocusState private var focusedRenamingItemID: UUID?
+    @State private var expandedSection: DetailSection = .none
 
     var body: some View {
         HSplitView {
@@ -20,20 +27,11 @@ struct ViewerPage: View {
                         Button("导入 Zip", systemImage: "shippingbox") {
                             viewModel.importBatchZipUsingPanel()
                         }
-                        Button("导出批次", systemImage: "square.and.arrow.up") {
-                            viewModel.exportSelectedBatch()
-                        }
-                        Button("继续编辑", systemImage: "square.and.pencil") {
-                            viewModel.continueEditingSelectedBatch()
-                        }
                         Button("打开目录", systemImage: "folder") {
                             viewModel.openSelectedBatchInFinder()
                         }
                         Button("打开导出目录", systemImage: "folder.badge.gearshape") {
                             viewModel.openSelectedBatchExportsDirectoryInFinder()
-                        }
-                        Button("删除批次", systemImage: "trash") {
-                            viewModel.deleteSelectedBatch()
                         }
                         Divider()
                         Button("重新扫描", systemImage: "arrow.clockwise") {
@@ -110,7 +108,7 @@ struct ViewerPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(minWidth: 280)
+            .frame(width: 280)
 
             VStack(alignment: .leading, spacing: 12) {
                 if let batch = viewModel.selectedBatch {
@@ -184,7 +182,7 @@ struct ViewerPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(minWidth: 400)
+            .frame(width: 400)
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("条目详情")
@@ -202,11 +200,9 @@ struct ViewerPage: View {
                             .scaledToFit()
                             .frame(maxHeight: 180)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    if let yamlPath = item.generatedYAMLPath {
-                        Text(yamlPath)
-                            .font(.caption)
-                            .textSelection(.enabled)
+                            .onTapGesture(count: 2) {
+                                viewModel.openSelectedPreviewImage()
+                            }
                     }
                     if !item.resourceItems.isEmpty {
                         Text("资源")
@@ -222,16 +218,94 @@ struct ViewerPage: View {
                         }
                         .frame(minHeight: 120, maxHeight: 180)
                     }
-                    if let yamlText = viewModel.selectedYAMLText {
-                        ScrollView {
-                            Text(yamlText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .font(.body.monospaced())
-                                .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            expandedSection = expandedSection == .runLog ? .none : .runLog
+                        } label: {
+                            HStack {
+                                Text("运行日志")
+                                    .font(.headline)
+                                Spacer()
+                                Image(systemName: expandedSection == .runLog ? "chevron.up" : "chevron.down")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                    } else {
-                        Text("未找到 YAML")
-                            .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                        if expandedSection == .runLog {
+                            if let runLog = viewModel.selectedRunLog {
+                                if runLog.isShared {
+                                    Text("批量单次调用共享日志")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text("状态: \(runLog.status.rawValue)")
+                                    .font(.caption)
+                                if let executablePath = runLog.executablePath {
+                                    Text("执行文件: \(executablePath)")
+                                        .font(.caption2)
+                                        .textSelection(.enabled)
+                                }
+                                if !runLog.arguments.isEmpty {
+                                    Text("参数: \(runLog.arguments.joined(separator: " "))")
+                                        .font(.caption2)
+                                        .textSelection(.enabled)
+                                }
+                                if let exitCode = runLog.exitCode {
+                                    Text("退出码: \(exitCode)")
+                                        .font(.caption2)
+                                }
+                                ScrollView([.horizontal, .vertical]) {
+                                    Text(viewModel.selectedRunLogText.isEmpty ? "暂无运行日志" : viewModel.selectedRunLogText)
+                                        .font(.body.monospaced())
+                                        .textSelection(.enabled)
+                                        .lineLimit(1_000_000)
+                                        .fixedSize(horizontal: true, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .frame(minHeight: 120, maxHeight: 220)
+                            } else {
+                                Text("暂无运行日志")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            expandedSection = expandedSection == .yaml ? .none : .yaml
+                        } label: {
+                            HStack {
+                                Text("YAML")
+                                    .font(.headline)
+                                Spacer()
+                                Image(systemName: expandedSection == .yaml ? "chevron.up" : "chevron.down")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if expandedSection == .yaml {
+                            if let yamlPath = item.generatedYAMLPath {
+                                Text(yamlPath)
+                                    .font(.caption)
+                                    .textSelection(.enabled)
+                            }
+                            if let yamlText = viewModel.selectedYAMLText {
+                                ScrollView([.horizontal, .vertical]) {
+                                    Text(yamlText)
+                                        .font(.body.monospaced())
+                                        .textSelection(.enabled)
+                                        .lineLimit(1_000_000)
+                                        .fixedSize(horizontal: true, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            } else {
+                                Text("未找到 YAML")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 } else {
                     EmptyStateView(title: "未选择条目", systemImage: "doc.text")

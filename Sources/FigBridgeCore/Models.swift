@@ -133,7 +133,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaultValue = AppSettings(
         promptTemplate: AppSettings.defaultPrompt,
         figmaToken: "",
-        defaultExportFormat: .svg,
+        defaultExportFormat: .png,
         defaultGenerationMode: .sequential,
         parallelism: 2,
         defaultAgentCallStrategy: .singleForBatch
@@ -254,7 +254,7 @@ public struct FigmaLinkItem: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public struct GenerationRunLog: Equatable, Sendable, Identifiable {
+public struct GenerationRunLog: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public var runID: String { id }
     public var isShared: Bool
@@ -330,6 +330,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
     public var parallelism: Int
     public var callStrategy: AgentCallStrategy
     public var items: [FigmaLinkItem]
+    public var runLogsByItemID: [UUID: GenerationRunLog]
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -342,6 +343,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         case parallelism
         case callStrategy
         case items
+        case runLogsByItemID
     }
 
     public init(
@@ -354,7 +356,8 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         mode: GenerationMode,
         parallelism: Int,
         callStrategy: AgentCallStrategy = .singlePerLink,
-        items: [FigmaLinkItem]
+        items: [FigmaLinkItem],
+        runLogsByItemID: [UUID: GenerationRunLog] = [:]
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -366,6 +369,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         self.parallelism = parallelism
         self.callStrategy = callStrategy
         self.items = items
+        self.runLogsByItemID = runLogsByItemID
     }
 
     public init(from decoder: any Decoder) throws {
@@ -380,6 +384,7 @@ public struct GenerationBatch: Codable, Equatable, Identifiable, Sendable {
         parallelism = try container.decodeIfPresent(Int.self, forKey: .parallelism) ?? AppSettings.defaultValue.parallelism
         callStrategy = try container.decodeIfPresent(AgentCallStrategy.self, forKey: .callStrategy) ?? .singlePerLink
         items = try container.decode([FigmaLinkItem].self, forKey: .items)
+        runLogsByItemID = try container.decodeIfPresent([UUID: GenerationRunLog].self, forKey: .runLogsByItemID) ?? [:]
     }
 }
 

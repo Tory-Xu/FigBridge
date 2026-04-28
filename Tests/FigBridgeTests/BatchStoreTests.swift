@@ -121,7 +121,37 @@ struct BatchStoreTests {
         let prompt = store.makeCopyPrompt(for: [item])
 
         #expect(prompt.contains("Implement this design from yaml files."))
-        #expect(prompt.contains("/tmp/a.yaml"))
+        #expect(prompt.contains("BASE: /tmp"))
+        #expect(prompt.contains("- 首页：a.yaml"))
+    }
+
+    @Test func copyPromptFallsBackToAbsolutePathWhenNoUsableBase() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        var itemA = FigmaLinkItem(
+            rawInputLine: "A",
+            title: "A",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        var itemB = FigmaLinkItem(
+            rawInputLine: "B",
+            title: "B",
+            url: "https://www.figma.com/design/FILE456/App?node-id=2-3",
+            fileKey: "FILE456",
+            nodeId: "2:3"
+        )
+        itemA.generatedYAMLPath = "/tmp/a.yaml"
+        itemB.generatedYAMLPath = "/var/tmp/b.yaml"
+
+        let prompt = store.makeCopyPrompt(for: [itemA, itemB])
+
+        #expect(!prompt.contains("BASE:"))
+        #expect(prompt.contains("- A：/tmp/a.yaml"))
+        #expect(prompt.contains("- B：/var/tmp/b.yaml"))
     }
 
     @Test func loadsLegacyBatchWithoutParallelismUsingDefaultValue() throws {
@@ -148,6 +178,51 @@ struct BatchStoreTests {
 
         let loaded = try #require(try store.loadBatch(id: "legacy-batch"))
         #expect(loaded.summary.parallelism == AppSettings.defaultValue.parallelism)
+        #expect(loaded.summary.runLogsByItemID.isEmpty)
+    }
+
+    @Test func persistsAndReloadsRunLogsByItemID() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        let item = FigmaLinkItem(
+            rawInputLine: "首页",
+            title: "首页",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        let log = GenerationRunLog(
+            id: "run-1",
+            isShared: false,
+            provider: .codex,
+            executablePath: "/usr/bin/env",
+            arguments: ["codex"],
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2),
+            exitCode: 0,
+            status: .finished,
+            stdout: "ok",
+            stderr: ""
+        )
+        let batch = GenerationBatch(
+            id: "batch-with-log",
+            createdAt: Date(timeIntervalSince1970: 0),
+            agent: .codex,
+            promptSnapshot: "prompt",
+            sourceInputText: "input",
+            outputDirectory: sandbox.root.path,
+            mode: .sequential,
+            parallelism: 2,
+            callStrategy: .singlePerLink,
+            items: [item],
+            runLogsByItemID: [item.id: log]
+        )
+
+        _ = try store.createBatch(batch)
+        let loaded = try #require(try store.loadBatch(id: "batch-with-log"))
+        #expect(loaded.summary.runLogsByItemID[item.id] == log)
     }
 
     @Test func createBatchArchivesExternalImageAssetsIntoBatchDirectory() throws {
