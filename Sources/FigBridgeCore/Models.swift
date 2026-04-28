@@ -127,6 +127,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaultPrompt = """
     Generate a clean YAML description for this Figma node.
     Include layout, typography, colors, spacing, assets, and interaction notes when visible.
+    You must call figma mcp to retrieve Figma data.
+    If calling figma mcp fails, stop immediately and report the failure.
+    Do not use fallback or alternative methods.
     Return YAML only.
     """
 

@@ -3,6 +3,14 @@ import Testing
 @testable import FigBridgeCore
 
 struct SettingsStoreTests {
+    @Test func defaultPromptIncludesFigmaMCPStopRules() {
+        let prompt = AppSettings.defaultPrompt.lowercased()
+
+        #expect(prompt.contains("figma mcp"))
+        #expect(prompt.contains("stop immediately"))
+        #expect(prompt.contains("do not use fallback"))
+    }
+
     @Test func persistsAndLoadsSettings() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.cleanup() }
