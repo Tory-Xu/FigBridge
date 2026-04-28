@@ -8,15 +8,51 @@ struct GeneratePage: View {
         case yaml
     }
 
+    private enum HelpSection: String, CaseIterable, Identifiable {
+        case agent
+        case figmaMCP
+        case figmaToken
+        case runtime
+        case modeAndStrategy
+        case importExport
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .agent:
+                "1. agent 说明"
+            case .figmaMCP:
+                "2. figma mcp 说明"
+            case .figmaToken:
+                "3. figma token 设置说明（结合预览和资源）"
+            case .runtime:
+                "4. 运行原理说明"
+            case .modeAndStrategy:
+                "5. 模式、调用策略说明"
+            case .importExport:
+                "6. 导入导出功能"
+            }
+        }
+    }
+
     @ObservedObject var viewModel: GenerateViewModel
     @FocusState private var focusedRenamingItemID: UUID?
     @State private var expandedSection: DetailSection = .none
+    @State private var isShowingHelpSheet: Bool = false
+    @State private var expandedHelpSection: HelpSection? = .agent
 
     var body: some View {
         HSplitView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("工作台")
-                    .font(.title2.bold())
+                HStack {
+                    Text("工作台")
+                        .font(.title2.bold())
+                    Spacer()
+                    Button("帮助") {
+                        isShowingHelpSheet = true
+                    }
+                }
                 HStack(alignment: .center, spacing: 8) {
                     Picker("Agent", selection: $viewModel.selectedAgentID) {
                         Text("未选择").tag(String?.none)
@@ -295,6 +331,105 @@ struct GeneratePage: View {
         }
         .task {
             await viewModel.bootstrap()
+        }
+        .sheet(isPresented: $isShowingHelpSheet) {
+            helpSheet
+        }
+    }
+
+    private var helpSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("工作台帮助")
+                    .font(.title3.bold())
+                Spacer()
+                Button("关闭") {
+                    isShowingHelpSheet = false
+                }
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(HelpSection.allCases) { section in
+                        helpSectionCard(section)
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 700, minHeight: 520, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func helpSectionCard(_ section: HelpSection) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                expandedHelpSection = expandedHelpSection == section ? nil : section
+            } label: {
+                HStack {
+                    Text(section.title)
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: expandedHelpSection == section ? "chevron.up" : "chevron.down")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expandedHelpSection == section {
+                Text(helpContent(for: section))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func helpContent(for section: HelpSection) -> String {
+        switch section {
+        case .agent:
+            """
+            工作台会检测本机可用的 Agent（当前支持 Claude / Codex）。你可以在上方 Agent 下拉中切换调用对象，再点击“刷新”重新检测。
+            生成前至少需要：选中一个 Agent、有可用 Prompt、并且待处理列表里有链接。
+            """
+        case .figmaMCP:
+            """
+            这里的 figma mcp 可以理解为应用访问 Figma 数据与资源的通道：会基于链接中的 fileKey/nodeId 拉取节点信息、预览图与资源地址，再缓存到本地批次。
+            选中条目后会触发懒加载，右侧“详情”会显示预览状态、资源状态和具体资源列表。
+            """
+        case .figmaToken:
+            """
+            请先到“设置”页填写并测试 Figma Token。Token 可用时，工作台才能稳定拉取节点预览图和资源文件。
+            如果 Token 未设置或不可用，详情中的资源状态/生成状态会提示 token 未设置，预览和资源加载会受影响。
+            设置页支持“测试 Token”和官方说明入口，建议先测试通过再执行批量生成。
+            """
+        case .runtime:
+            """
+            运行链路：
+            1) 在工作台输入多行信息并添加，应用会解析 Figma design 链接并按 fileKey + nodeId 去重。
+            2) 选中条目时拉取节点预览与资源元数据。
+            3) 点击“生成”后由协调器按当前模式和策略调用 Agent 生成 YAML。
+            4) 结果写入当前批次目录（含批次元数据、YAML 与相关导出内容），可在“查看”页继续管理。
+            """
+        case .modeAndStrategy:
+            """
+            模式：
+            - 逐个：按顺序处理待生成条目。
+            - 并发：同时处理多个条目，可通过“并发数”控制并行度。
+
+            调用策略：
+            - 单链接调用：每个链接单独调用一次 Agent。
+            - 多链接单次调用：一个批次内尽量合并为一次调用，条目共享同一运行日志。
+            """
+        case .importExport:
+            """
+            工作台支持条目级资源导出：导出预览图、单个资源、全部资源。
+            批次级导入导出在“查看”页：可导入目录、导入 Zip、导出批次 Zip，并可打开批次目录或导出目录继续处理。
+            """
         }
     }
 
