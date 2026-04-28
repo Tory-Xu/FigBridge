@@ -92,21 +92,30 @@ public struct AgentService: Sendable {
             await eventHandler(.started(executablePath: executable.path, arguments: arguments, isSharedLog: false))
         }
 
-        let result = try await shellClient.runStreaming(executable: executable, arguments: arguments, timeout: executionTimeout) { event in
-            guard let eventHandler else {
-                return
+        let result: ShellResult
+        do {
+            result = try await shellClient.runStreaming(executable: executable, arguments: arguments, timeout: executionTimeout) { event in
+                guard let eventHandler else {
+                    return
+                }
+                switch event {
+                case .started:
+                    break
+                case .stdout(let text):
+                    await eventHandler(.stdout(text))
+                case .stderr(let text):
+                    await eventHandler(.stderr(text))
+                case .finished(let status):
+                    await eventHandler(.finished(exitCode: status))
+                }
             }
-            switch event {
-            case .started:
-                break
-            case .stdout(let text):
-                await eventHandler(.stdout(text))
-            case .stderr(let text):
-                await eventHandler(.stderr(text))
-            case .finished(let status):
-                await eventHandler(.finished(exitCode: status))
+        } catch is CancellationError {
+            if let eventHandler {
+                await eventHandler(.cancelled)
             }
+            throw CancellationError()
         }
+
         if result.status == SIGTERM {
             if let eventHandler {
                 await eventHandler(.failed(message: AgentServiceError.executionTimedOut(executionTimeout).localizedDescription))

@@ -15,6 +15,7 @@ struct GenerationCancellationTests {
             FigmaLinkItem(rawInputLine: "two", title: "two", url: "https://www.figma.com/design/FILE2/B?node-id=3-4", fileKey: "FILE2", nodeId: "3:4"),
         ]
 
+        let progressRecorder = CancellationProgressRecorder()
         let task = Task {
             try await coordinator.generate(
                 agent: .codex,
@@ -24,7 +25,10 @@ struct GenerationCancellationTests {
                 mode: .sequential,
                 parallelism: 1,
                 callStrategy: .singlePerLink,
-                items: items
+                items: items,
+                progress: { _, _, item in
+                    await progressRecorder.record(item)
+                }
             )
         }
 
@@ -37,6 +41,8 @@ struct GenerationCancellationTests {
         } catch {
             #expect(error is CancellationError)
         }
+        let statuses = await progressRecorder.statuses()
+        #expect(statuses.contains(.cancelled))
     }
 }
 
@@ -44,5 +50,17 @@ private actor SlowMockAgentRunner: AgentRunning {
     func run(provider: AgentProvider, prompt: String, item: FigmaLinkItem, eventHandler: (@Sendable (AgentRunEvent) async -> Void)? = nil) async throws -> AgentRunResult {
         try await Task.sleep(nanoseconds: 2_000_000_000)
         return AgentRunResult(output: "name: slow", executablePath: "/mock/\(provider.rawValue)", arguments: [], exitCode: 0, stderr: "")
+    }
+}
+
+private actor CancellationProgressRecorder {
+    private var items: [FigmaLinkItem] = []
+
+    func record(_ item: FigmaLinkItem) {
+        items.append(item)
+    }
+
+    func statuses() -> [GenerationStatus] {
+        items.map(\.generationStatus)
     }
 }

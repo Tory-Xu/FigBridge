@@ -174,6 +174,15 @@ public struct GenerationCoordinator: Sendable {
             resolvedItem.generationStatus = .success
             resolvedItem.errorMessage = nil
             resolvedItem.logSummary = "\(provider.displayName) 已执行：\(result.executablePath)"
+        } catch is CancellationError {
+            resolvedItem.generationStatus = .cancelled
+            resolvedItem.generatedYAMLPath = nil
+            resolvedItem.agentOutputPath = nil
+            resolvedItem.errorMessage = nil
+            resolvedItem.logSummary = "已取消"
+            if let itemEvent {
+                await itemEvent(item.id, .cancelled)
+            }
         } catch {
             resolvedItem.generationStatus = .failed
             resolvedItem.generatedYAMLPath = nil

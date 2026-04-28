@@ -48,96 +48,109 @@ public struct ShellClient: Sendable {
         timeout: TimeInterval? = nil,
         onEvent: (@Sendable (ShellEvent) async -> Void)?
     ) async throws -> ShellResult {
-        try await withCheckedThrowingContinuation { continuation in
-            let task = Process()
-            task.executableURL = executable
-            task.arguments = arguments
-            task.environment = runtimeEnvironment()
+        let processBox = ProcessBox()
+        let cancellationState = CancellationState()
+        let resumeBox = ContinuationResumeBox()
 
-            let stdinHandle = FileHandle(forReadingAtPath: "/dev/null")
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            task.standardInput = stdinHandle
-            task.standardOutput = stdoutPipe
-            task.standardError = stderrPipe
-            let stdoutCollector = StreamCollector()
-            let stderrCollector = StreamCollector()
-            let resumeBox = ContinuationResumeBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = Process()
+                processBox.set(task)
+                task.executableURL = executable
+                task.arguments = arguments
+                task.environment = runtimeEnvironment()
 
-            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    return
-                }
-                stdoutCollector.append(data: data)
-                if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
-                    Task {
-                        await onEvent(.stdout(text))
-                    }
-                }
-            }
-            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    return
-                }
-                stderrCollector.append(data: data)
-                if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
-                    Task {
-                        await onEvent(.stderr(text))
-                    }
-                }
-            }
+                let stdinHandle = FileHandle(forReadingAtPath: "/dev/null")
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                task.standardInput = stdinHandle
+                task.standardOutput = stdoutPipe
+                task.standardError = stderrPipe
+                let stdoutCollector = StreamCollector()
+                let stderrCollector = StreamCollector()
 
-            do {
-                try task.run()
-                if let onEvent {
-                    Task {
-                        await onEvent(.started(pid: task.processIdentifier))
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else {
+                        return
                     }
-                }
-                task.terminationHandler = { process in
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    try? stdinHandle?.close()
-                    let stdoutTail = stdoutPipe.fileHandleForReading.availableData
-                    let stderrTail = stderrPipe.fileHandleForReading.availableData
-                    stdoutCollector.append(data: stdoutTail)
-                    stderrCollector.append(data: stderrTail)
-                    if let text = String(data: stdoutTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                    stdoutCollector.append(data: data)
+                    if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
                         Task {
                             await onEvent(.stdout(text))
                         }
                     }
-                    if let text = String(data: stderrTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                }
+                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    guard !data.isEmpty else {
+                        return
+                    }
+                    stderrCollector.append(data: data)
+                    if let text = String(data: data, encoding: .utf8), !text.isEmpty, let onEvent {
                         Task {
                             await onEvent(.stderr(text))
                         }
                     }
+                }
+
+                do {
+                    try task.run()
                     if let onEvent {
                         Task {
-                            await onEvent(.finished(status: process.terminationStatus))
+                            await onEvent(.started(pid: task.processIdentifier))
                         }
                     }
+                    task.terminationHandler = { process in
+                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                        stderrPipe.fileHandleForReading.readabilityHandler = nil
+                        try? stdinHandle?.close()
+                        let stdoutTail = stdoutPipe.fileHandleForReading.availableData
+                        let stderrTail = stderrPipe.fileHandleForReading.availableData
+                        stdoutCollector.append(data: stdoutTail)
+                        stderrCollector.append(data: stderrTail)
+                        if let text = String(data: stdoutTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                            Task {
+                                await onEvent(.stdout(text))
+                            }
+                        }
+                        if let text = String(data: stderrTail, encoding: .utf8), !text.isEmpty, let onEvent {
+                            Task {
+                                await onEvent(.stderr(text))
+                            }
+                        }
+                        if let onEvent {
+                            Task {
+                                await onEvent(.finished(status: process.terminationStatus))
+                            }
+                        }
+                        resumeBox.resume {
+                            if cancellationState.isCancelled {
+                                continuation.resume(throwing: CancellationError())
+                            } else {
+                                continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdoutCollector.fullText(), stderr: stderrCollector.fullText()))
+                            }
+                        }
+                    }
+                    if let timeout, timeout > 0 {
+                        Task.detached {
+                            let delay = UInt64(timeout * 1_000_000_000)
+                            try? await Task.sleep(nanoseconds: delay)
+                            guard task.isRunning else {
+                                return
+                            }
+                            task.terminate()
+                        }
+                    }
+                } catch {
                     resumeBox.resume {
-                        continuation.resume(returning: ShellResult(status: process.terminationStatus, stdout: stdoutCollector.fullText(), stderr: stderrCollector.fullText()))
+                        continuation.resume(throwing: error)
                     }
-                }
-                if let timeout, timeout > 0 {
-                    Task.detached {
-                        let delay = UInt64(timeout * 1_000_000_000)
-                        try? await Task.sleep(nanoseconds: delay)
-                        guard task.isRunning else {
-                            return
-                        }
-                        task.terminate()
-                    }
-                }
-            } catch {
-                resumeBox.resume {
-                    continuation.resume(throwing: error)
                 }
             }
+        } onCancel: {
+            cancellationState.setCancelled()
+            processBox.terminateIfRunning()
         }
     }
 
@@ -201,6 +214,44 @@ public struct ShellClient: Sendable {
             merged["PATH"] = path
         }
         return merged
+    }
+}
+
+private final class ProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+
+    func set(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+    }
+
+    func terminateIfRunning() {
+        lock.lock()
+        let process = self.process
+        lock.unlock()
+        guard let process, process.isRunning else {
+            return
+        }
+        process.terminate()
+    }
+}
+
+private final class CancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func setCancelled() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }
 

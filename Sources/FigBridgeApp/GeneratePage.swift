@@ -41,6 +41,7 @@ struct GeneratePage: View {
     @State private var expandedSection: DetailSection = .none
     @State private var isShowingHelpSheet: Bool = false
     @State private var expandedHelpSection: HelpSection? = .agent
+    @State private var isShowingNewBatchConfirmation: Bool = false
 
     var body: some View {
         HSplitView {
@@ -124,7 +125,11 @@ struct GeneratePage: View {
                         viewModel.addInput()
                     }
                     Button("新建批次") {
-                        viewModel.startNewBatch()
+                        if viewModel.isGenerating {
+                            isShowingNewBatchConfirmation = true
+                        } else {
+                            viewModel.startNewBatch()
+                        }
                     }
                     Button("生成") {
                         Task {
@@ -334,6 +339,14 @@ struct GeneratePage: View {
         }
         .sheet(isPresented: $isShowingHelpSheet) {
             helpSheet
+        }
+        .alert("当前正在生成", isPresented: $isShowingNewBatchConfirmation) {
+            Button("取消生成并新建", role: .destructive) {
+                viewModel.startNewBatch()
+            }
+            Button("继续生成", role: .cancel) {}
+        } message: {
+            Text("新建批次将取消当前生成任务并清空当前工作区，是否继续？")
         }
     }
 
