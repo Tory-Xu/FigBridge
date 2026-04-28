@@ -153,6 +153,9 @@ struct GeneratePage: View {
                             .scaledToFit()
                             .frame(maxHeight: 220)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .onTapGesture(count: 2) {
+                                viewModel.openSelectedPreviewImage()
+                            }
                     }
                     if let errorMessage = item.errorMessage {
                         Text(errorMessage)

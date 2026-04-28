@@ -117,7 +117,7 @@ struct ViewerPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(minWidth: 280)
+            .frame(width: 280)
 
             VStack(alignment: .leading, spacing: 12) {
                 if let batch = viewModel.selectedBatch {
@@ -191,7 +191,7 @@ struct ViewerPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .frame(minWidth: 400)
+            .frame(width: 400)
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("条目详情")
@@ -209,6 +209,9 @@ struct ViewerPage: View {
                             .scaledToFit()
                             .frame(maxHeight: 180)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .onTapGesture(count: 2) {
+                                viewModel.openSelectedPreviewImage()
+                            }
                     }
                     if !item.resourceItems.isEmpty {
                         Text("资源")

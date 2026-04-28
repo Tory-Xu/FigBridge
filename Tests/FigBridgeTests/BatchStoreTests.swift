@@ -121,7 +121,37 @@ struct BatchStoreTests {
         let prompt = store.makeCopyPrompt(for: [item])
 
         #expect(prompt.contains("Implement this design from yaml files."))
-        #expect(prompt.contains("/tmp/a.yaml"))
+        #expect(prompt.contains("BASE: /tmp"))
+        #expect(prompt.contains("- 首页：a.yaml"))
+    }
+
+    @Test func copyPromptFallsBackToAbsolutePathWhenNoUsableBase() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.cleanup() }
+
+        let store = BatchStore(rootDirectory: sandbox.root)
+        var itemA = FigmaLinkItem(
+            rawInputLine: "A",
+            title: "A",
+            url: "https://www.figma.com/design/FILE123/App?node-id=1-2",
+            fileKey: "FILE123",
+            nodeId: "1:2"
+        )
+        var itemB = FigmaLinkItem(
+            rawInputLine: "B",
+            title: "B",
+            url: "https://www.figma.com/design/FILE456/App?node-id=2-3",
+            fileKey: "FILE456",
+            nodeId: "2:3"
+        )
+        itemA.generatedYAMLPath = "/tmp/a.yaml"
+        itemB.generatedYAMLPath = "/var/tmp/b.yaml"
+
+        let prompt = store.makeCopyPrompt(for: [itemA, itemB])
+
+        #expect(!prompt.contains("BASE:"))
+        #expect(prompt.contains("- A：/tmp/a.yaml"))
+        #expect(prompt.contains("- B：/var/tmp/b.yaml"))
     }
 
     @Test func loadsLegacyBatchWithoutParallelismUsingDefaultValue() throws {

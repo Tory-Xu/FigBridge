@@ -175,8 +175,84 @@ public final class BatchStore: Sendable {
     }
 
     public func makeCopyPrompt(for items: [FigmaLinkItem]) -> String {
-        let yamlPaths = items.compactMap(\.generatedYAMLPath)
-        return (["Implement this design from yaml files."] + yamlPaths).joined(separator: "\n")
+        let resolvedEntries: [(title: String, path: String)] = items.compactMap { item in
+            guard let yamlPath = item.generatedYAMLPath else {
+                return nil
+            }
+            let title = item.title ?? item.nodeName ?? item.nodeId
+            return (title: title, path: yamlPath)
+        }
+        guard !resolvedEntries.isEmpty else {
+            return "Implement this design from yaml files."
+        }
+
+        let allPathComponents = resolvedEntries.map { entry in
+            URL(fileURLWithPath: entry.path).standardizedFileURL.deletingLastPathComponent().pathComponents
+        }
+        let sharedPrefixComponents = longestSharedPathPrefix(in: allPathComponents)
+        let basePath = normalizedPath(from: sharedPrefixComponents)
+
+        var lines: [String] = ["Implement this design from yaml files."]
+        if let basePath, !basePath.isEmpty {
+            lines.append("BASE: \(basePath)")
+            for entry in resolvedEntries {
+                let absolutePath = URL(fileURLWithPath: entry.path).standardizedFileURL.path
+                if let relativePath = makeRelativePath(absolutePath: absolutePath, basePath: basePath) {
+                    lines.append("- \(entry.title)：\(relativePath)")
+                } else {
+                    lines.append("- \(entry.title)：\(absolutePath)")
+                }
+            }
+        } else {
+            for entry in resolvedEntries {
+                let absolutePath = URL(fileURLWithPath: entry.path).standardizedFileURL.path
+                lines.append("- \(entry.title)：\(absolutePath)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func longestSharedPathPrefix(in paths: [[String]]) -> [String] {
+        guard var prefix = paths.first, !prefix.isEmpty else {
+            return []
+        }
+        for path in paths.dropFirst() {
+            var index = 0
+            let limit = min(prefix.count, path.count)
+            while index < limit, prefix[index] == path[index] {
+                index += 1
+            }
+            prefix = Array(prefix.prefix(index))
+            if prefix.isEmpty {
+                break
+            }
+        }
+        return prefix
+    }
+
+    private func normalizedPath(from components: [String]) -> String? {
+        guard !components.isEmpty else {
+            return nil
+        }
+        let path = NSString.path(withComponents: components)
+        guard path != "/", !path.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func makeRelativePath(absolutePath: String, basePath: String) -> String? {
+        guard absolutePath.hasPrefix(basePath) else {
+            return nil
+        }
+        let candidate = String(absolutePath.dropFirst(basePath.count))
+        if candidate.isEmpty {
+            return nil
+        }
+        if candidate.hasPrefix("/") {
+            return String(candidate.dropFirst())
+        }
+        return candidate
     }
 
     public func exportBatch(at batchDirectory: URL, to destinationURL: URL) throws -> BatchExportResult {

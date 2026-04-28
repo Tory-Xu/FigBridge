@@ -583,6 +583,18 @@ final class GenerateViewModel: ObservableObject {
         exportLocalFile(at: URL(fileURLWithPath: previewPath), preferredName: "\(item.nodeId.replacingOccurrences(of: ":", with: "-"))-preview.png")
     }
 
+    func openSelectedPreviewImage() {
+        guard let previewPath = selectedItem?.previewImagePath else {
+            return
+        }
+        let previewURL = URL(fileURLWithPath: previewPath)
+        guard FileManager.default.fileExists(atPath: previewURL.path) else {
+            exportMessage = "原图不存在: \(previewURL.lastPathComponent)"
+            return
+        }
+        DesktopSupport.openFile(previewURL)
+    }
+
     func exportResource(_ resource: FigmaResourceItem) {
         guard let localPath = resource.localPath else {
             return
@@ -1119,6 +1131,18 @@ final class ViewerViewModel: ObservableObject {
             return
         }
         continueEditing(batch)
+    }
+
+    func openSelectedPreviewImage() {
+        guard let previewPath = selectedItem?.previewImagePath else {
+            return
+        }
+        let previewURL = URL(fileURLWithPath: previewPath)
+        guard FileManager.default.fileExists(atPath: previewURL.path) else {
+            message = "原图不存在: \(previewURL.lastPathComponent)"
+            return
+        }
+        DesktopSupport.openFile(previewURL)
     }
 
     func beginRenamingSelectedBatch() {
