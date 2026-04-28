@@ -16,6 +16,8 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 RESOURCE_BUNDLE_NAME="FigBridge_FigBridgeApp.bundle"
 SOURCE_RESOURCES_DIR="$ROOT_DIR/Sources/FigBridgeApp/Resources"
 VOLUME_NAME="$APP_NAME"
+QUARANTINE_FIX_SCRIPT_NAME="Fix Quarantine.command"
+INSTALL_GUIDE_NAME="安装说明.txt"
 
 cleanup() {
   rm -rf "$STAGE_DIR"
@@ -79,6 +81,53 @@ ditto "$SOURCE_RESOURCES_DIR" "$RESOURCES_DIR"
 ditto "$RESOURCE_BUNDLE_PATH" "$APP_DIR/$RESOURCE_BUNDLE_NAME"
 
 ln -s /Applications "$STAGE_DIR/Applications"
+
+cat >"$STAGE_DIR/$QUARANTINE_FIX_SCRIPT_NAME" <<'EOF'
+#!/bin/zsh
+set -euo pipefail
+
+APP_PATH="/Applications/FigBridge.app"
+
+echo "====================================="
+echo " FigBridge 隔离属性修复工具"
+echo "====================================="
+echo ""
+
+if [[ ! -d "$APP_PATH" ]]; then
+  echo "未找到 $APP_PATH"
+  echo "请先把 FigBridge.app 拖入 Applications 后再运行本脚本。"
+  echo ""
+  read -r "?按回车键关闭..."
+  exit 1
+fi
+
+echo "正在执行：xattr -rd com.apple.quarantine \"$APP_PATH\""
+if xattr -rd com.apple.quarantine "$APP_PATH"; then
+  echo ""
+  echo "完成：已移除 FigBridge 的隔离属性。"
+  echo "现在可以从“应用程序”中直接启动 FigBridge。"
+else
+  echo ""
+  echo "执行失败，请确认你有权限访问 $APP_PATH。"
+  exit 1
+fi
+
+echo ""
+read -r "?按回车键关闭..."
+EOF
+chmod +x "$STAGE_DIR/$QUARANTINE_FIX_SCRIPT_NAME"
+
+cat >"$STAGE_DIR/$INSTALL_GUIDE_NAME" <<EOF
+FigBridge 安装步骤
+
+1. 将 FigBridge.app 拖入 Applications。
+2. 双击 \"$QUARANTINE_FIX_SCRIPT_NAME\"。
+3. 按提示完成后，从“应用程序”启动 FigBridge。
+
+如果修复命令失败：
+- 确认 FigBridge.app 已位于 /Applications/FigBridge.app
+- 如有权限提示，请允许终端执行
+EOF
 
 echo "==> Creating DMG"
 rm -f "$DMG_PATH"

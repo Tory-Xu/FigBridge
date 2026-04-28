@@ -49,6 +49,12 @@ swift test
 
 脚本会先执行对应架构的 `swift build -c release --arch <arch>`，再组装 `FigBridge.app` 并打包为 `dmg`。打包前会校验二进制架构与最低系统版本仍为 `macOS 12.0`。
 
+DMG 内同时包含：
+
+- `Applications` 快捷方式（用于拖拽安装）
+- `Fix Quarantine.command`（拖入应用后双击，一键执行 `xattr -rd com.apple.quarantine /Applications/FigBridge.app`）
+- `安装说明.txt`
+
 ## 当前已实现的关键行为
 
 - 支持解析：
