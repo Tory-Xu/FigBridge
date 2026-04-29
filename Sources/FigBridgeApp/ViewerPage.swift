@@ -3,7 +3,6 @@ import FigBridgeCore
 
 struct ViewerPage: View {
     private enum DetailSection {
-        case none
         case runLog
         case yaml
     }
@@ -11,7 +10,7 @@ struct ViewerPage: View {
     @ObservedObject var viewModel: ViewerViewModel
     @FocusState private var focusedRenamingBatchID: String?
     @FocusState private var focusedRenamingItemID: UUID?
-    @State private var expandedSection: DetailSection = .none
+    @State private var expandedSection: DetailSection = .runLog
 
     var body: some View {
         HSplitView {
@@ -219,93 +218,82 @@ struct ViewerPage: View {
                         .frame(minHeight: 120, maxHeight: 180)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Button {
-                            expandedSection = expandedSection == .runLog ? .none : .runLog
-                        } label: {
-                            HStack {
-                                Text("运行日志")
-                                    .font(.headline)
-                                Spacer()
-                                Image(systemName: expandedSection == .runLog ? "chevron.up" : "chevron.down")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                        Picker("", selection: $expandedSection) {
+                            Text("运行日志").tag(DetailSection.runLog)
+                            Text("YAML").tag(DetailSection.yaml)
                         }
-                        .buttonStyle(.plain)
-                        if expandedSection == .runLog {
-                            if let runLog = viewModel.selectedRunLog {
-                                if runLog.isShared {
-                                    Text("批量单次调用共享日志")
-                                        .font(.caption)
+                        .pickerStyle(.segmented)
+                        Group {
+                            if expandedSection == .runLog {
+                                if let runLog = viewModel.selectedRunLog {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        if runLog.isShared {
+                                            Text("批量单次调用共享日志")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        ScrollView([.horizontal, .vertical]) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text("状态: \(runLog.status.rawValue)")
+                                                    .font(.caption)
+                                                if let executablePath = runLog.executablePath {
+                                                    Text("执行文件: \(executablePath)")
+                                                        .font(.caption2)
+                                                        .textSelection(.enabled)
+                                                }
+                                                if !runLog.arguments.isEmpty {
+                                                    Text("参数: \(runLog.arguments.joined(separator: " "))")
+                                                        .font(.caption2)
+                                                        .textSelection(.enabled)
+                                                }
+                                                if let exitCode = runLog.exitCode {
+                                                    Text("退出码: \(exitCode)")
+                                                        .font(.caption2)
+                                                }
+                                            }
+                                            .fixedSize(horizontal: true, vertical: false)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .frame(minHeight: 44, maxHeight: 110)
+                                        ScrollView([.horizontal, .vertical]) {
+                                            Text(viewModel.selectedRunLogText.isEmpty ? "暂无运行日志" : viewModel.selectedRunLogText)
+                                                .font(.body.monospaced())
+                                                .textSelection(.enabled)
+                                                .lineLimit(1_000_000)
+                                                .fixedSize(horizontal: true, vertical: true)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    }
+                                } else {
+                                    Text("暂无运行日志")
                                         .foregroundStyle(.secondary)
                                 }
-                                Text("状态: \(runLog.status.rawValue)")
-                                    .font(.caption)
-                                if let executablePath = runLog.executablePath {
-                                    Text("执行文件: \(executablePath)")
-                                        .font(.caption2)
-                                        .textSelection(.enabled)
-                                }
-                                if !runLog.arguments.isEmpty {
-                                    Text("参数: \(runLog.arguments.joined(separator: " "))")
-                                        .font(.caption2)
-                                        .textSelection(.enabled)
-                                }
-                                if let exitCode = runLog.exitCode {
-                                    Text("退出码: \(exitCode)")
-                                        .font(.caption2)
-                                }
-                                ScrollView([.horizontal, .vertical]) {
-                                    Text(viewModel.selectedRunLogText.isEmpty ? "暂无运行日志" : viewModel.selectedRunLogText)
-                                        .font(.body.monospaced())
-                                        .textSelection(.enabled)
-                                        .lineLimit(1_000_000)
-                                        .fixedSize(horizontal: true, vertical: true)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .frame(minHeight: 120, maxHeight: 220)
                             } else {
-                                Text("暂无运行日志")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button {
-                            expandedSection = expandedSection == .yaml ? .none : .yaml
-                        } label: {
-                            HStack {
-                                Text("YAML")
-                                    .font(.headline)
-                                Spacer()
-                                Image(systemName: expandedSection == .yaml ? "chevron.up" : "chevron.down")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        if expandedSection == .yaml {
-                            if let yamlPath = item.generatedYAMLPath {
-                                Text(yamlPath)
-                                    .font(.caption)
-                                    .textSelection(.enabled)
-                            }
-                            if let yamlText = viewModel.selectedYAMLText {
-                                ScrollView([.horizontal, .vertical]) {
-                                    Text(yamlText)
-                                        .font(.body.monospaced())
-                                        .textSelection(.enabled)
-                                        .lineLimit(1_000_000)
-                                        .fixedSize(horizontal: true, vertical: true)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if let yamlPath = item.generatedYAMLPath {
+                                        Text(yamlPath)
+                                            .font(.caption)
+                                            .textSelection(.enabled)
+                                    }
+                                    if let yamlText = viewModel.selectedYAMLText {
+                                        ScrollView([.horizontal, .vertical]) {
+                                            Text(yamlText)
+                                                .font(.body.monospaced())
+                                                .textSelection(.enabled)
+                                                .lineLimit(1_000_000)
+                                                .fixedSize(horizontal: true, vertical: true)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    } else {
+                                        Text("未找到 YAML")
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
-                            } else {
-                                Text("未找到 YAML")
-                                    .foregroundStyle(.secondary)
                             }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
                 } else {
                     EmptyStateView(title: "未选择条目", systemImage: "doc.text")
